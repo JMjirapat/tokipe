@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  core:
+    name: core module
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - run: go build ./...
+      - run: go vet ./...
+      # -race needs cgo; run the race pass separately from the CGO_ENABLED=0 build.
+      - run: CGO_ENABLED=1 go test -race -cover ./...
+
+      # The examples are the executable integration tests (mocks only, no keys).
+      - name: examples run end to end
+        run: |
+          go run ./examples/rag-chatbot
+          go run ./examples/local-routing
+          go run ./examples/coding-agent
+
+      # Fails the build if the >=30% input-token reduction claim regresses.
+      - run: go run ./benchmarks
+
+      - name: core module has no third-party dependencies
+        run: |
+          deps=$(go list -deps ./... \
+            | grep -E '^[^/]+\.[^/]+/' | grep -v '^agentkit' || true)
+          if [ -n "$deps" ]; then
+            echo "unexpected third-party dependencies in the core module:"
+            echo "$deps"
+            exit 1
+          fi
+
+  submodules:
+    name: nested module ${{ matrix.mod }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mod:
+          - stores/pgvector
+          - toolcache/redis
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: build and test
+        working-directory: ${{ matrix.mod }}
+        run: |
+          go build ./...
+          go vet ./...
+          go test -race ./...

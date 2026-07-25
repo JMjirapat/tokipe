@@ -1,0 +1,57 @@
+# providers/anthropic
+
+A `pipeline.ModelClient` for the Anthropic Messages API, built on `net/http`
+alone — it adds no third-party dependency, so it ships inside the core module
+without breaking the zero-dependency guarantee.
+
+## Usage
+
+```go
+client, err := anthropic.New(anthropic.Config{
+    APIKey:    os.Getenv("ANTHROPIC_API_KEY"),
+    Model:     "claude-opus-5",
+    MaxTokens: 1024,
+})
+if err != nil {
+    return err
+}
+
+kit := agentkit.New(client, config.WithCacheAlignment())
+```
+
+## What it does with `CacheBreakpoints`
+
+`Request.CacheBreakpoints` become `cache_control: {"type": "ephemeral"}` markers
+on the outgoing content blocks. The API accepts at most **four**; when a request
+carries more, the client keeps the four deepest (latest) breakpoints and drops
+the rest, since the longest prefix is the one worth caching.
+
+`Response.Usage` is populated from the API's `usage` object, including
+`cache_read_input_tokens` and `cache_creation_input_tokens` — those two fields
+are how you verify caching is actually working in production.
+
+## Manual integration test
+
+Unit tests run against `httptest` and need no credentials. The caching
+behaviour, however, can only be confirmed against the real endpoint.
+
+```bash
+ANTHROPIC_API_KEY=sk-... go test -run TestPromptCachingAcrossTurns -v ./providers/anthropic/
+```
+
+Without the variable set, the test **skips** — CI stays green. Per spec §3.1,
+this test may be skipped in CI but must **not** be skipped in code-review
+sign-off before a release tag.
+
+What it asserts:
+
+1. Two sequential calls share a byte-identical static prefix.
+2. Turn 1 reports `cache_creation_input_tokens > 0` — the prefix was written to
+   the cache.
+3. Turn 2 reports `cache_read_input_tokens > 0` — the prefix was reused.
+
+If turn 1 writes nothing, the prefix is below the provider's minimum cacheable
+length; lengthen it rather than deleting the assertion.
+
+This test makes two real, billed API calls. They are small (64 max output
+tokens), but they are not free.

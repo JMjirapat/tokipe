@@ -1,0 +1,14 @@
+# Build & test artifacts
+/bin/
+*.test
+*.out
+coverage.txt
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Never commit credentials
+.env
+.env.*
