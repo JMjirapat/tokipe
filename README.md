@@ -115,6 +115,40 @@ need a driver live in their own nested modules:
 | `budget` | Per-turn-type token budgets and turn classification |
 | `metrics` | Provider-agnostic counters, no-op by default |
 | `stores`, `providers` | Retrieval and model-client interfaces |
+| `providers/anthropic` | Anthropic Messages API over `net/http` (needs an API key) |
+| `providers/cli` | Any CLI agent as a backend — `claude`, `codex`, `opencode` (needs no API key) |
+
+## Backends
+
+`ModelClient` is the only seam a provider touches. Nothing in the core imports
+a provider package, so adding one never means changing a stage.
+
+Two ship in-tree:
+
+```go
+// API key, full control over cache breakpoints.
+client, _ := anthropic.New(anthropic.Config{APIKey: os.Getenv("ANTHROPIC_API_KEY")})
+
+// No API key: runs whatever CLI your subscription already authenticates.
+client, _ := cli.New(cli.ClaudePreset(""))   // or CodexPreset / OpenCodePreset
+```
+
+The CLI backend exists because API credit and a subscription are different
+products. If you have a Claude Pro, Codex, or OpenCode plan and no API key, the
+CLI is a real backend, not a workaround.
+
+**What the CLI backend cannot do:** a CLI builds its own prompt scaffold and
+exposes no `cache_control` hooks, so `Request.CacheBreakpoints` are ignored
+rather than mistranslated, and the `Usage` it reports describes the CLI's
+prompt, not yours. Every other optimization still applies — preprocess rules
+still skip calls entirely, the tool cache still prevents re-execution,
+compression still shrinks what you send, and routing still picks a backend.
+
+`CacheBreakpoints` is the one place a provider's shape shows through into a
+core type: explicit, caller-placed breakpoints are an Anthropic idea, and most
+providers cache automatically instead. It is advisory — a backend that cannot
+use it ignores it, and `cache.Aligner`'s reordering still pays off, because a
+stable prefix is what automatic caching keys on too.
 
 ## Examples
 

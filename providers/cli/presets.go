@@ -1,0 +1,167 @@
+package cli
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"agentkit/pipeline"
+)
+
+// PlainTextParser treats the whole of stdout as the answer. Correct for CLIs
+// that print prose and nothing else.
+func PlainTextParser(stdout []byte) (*pipeline.Response, error) {
+	return &pipeline.Response{Content: strings.TrimSpace(string(stdout))}, nil
+}
+
+// claudeResult is the subset of `claude -p --output-format json` this adapter
+// reads. Verified against Claude Code 2.1.x; unknown fields are ignored, so
+// added fields do not break parsing.
+type claudeResult struct {
+	Type    string `json:"type"`
+	Subtype string `json:"subtype"`
+	IsError bool   `json:"is_error"`
+	Result  string `json:"result"`
+	Usage   struct {
+		InputTokens              int `json:"input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	} `json:"usage"`
+	ModelUsage map[string]json.RawMessage `json:"modelUsage"`
+}
+
+// ClaudeJSONParser reads `claude -p --output-format json`.
+//
+// The reported Usage is genuine, but it measures Claude Code's own prompt —
+// its system prompt and tool definitions dominate the token count. Do not read
+// agentkit's cache-alignment effectiveness from these numbers.
+func ClaudeJSONParser(stdout []byte) (*pipeline.Response, error) {
+	var r claudeResult
+	if err := json.Unmarshal(bytes.TrimSpace(stdout), &r); err != nil {
+		return nil, fmt.Errorf("decoding claude json: %w", err)
+	}
+	if r.IsError {
+		return nil, fmt.Errorf("claude reported an error (subtype %q): %s", r.Subtype, r.Result)
+	}
+
+	resp := &pipeline.Response{
+		Content: strings.TrimSpace(r.Result),
+		Usage: pipeline.Usage{
+			InputTokens:         r.Usage.InputTokens,
+			OutputTokens:        r.Usage.OutputTokens,
+			CacheReadTokens:     r.Usage.CacheReadInputTokens,
+			CacheCreationTokens: r.Usage.CacheCreationInputTokens,
+		},
+	}
+	// modelUsage is keyed by model id; with one key it names the model used.
+	if len(r.ModelUsage) == 1 {
+		for model := range r.ModelUsage {
+			resp.ModelUsed = model
+		}
+	}
+	return resp, nil
+}
+
+// CodexJSONLParser reads `codex exec --json`, which emits one JSON event per
+// line. It keeps the last assistant message and sums whatever token counts the
+// events carry.
+//
+// Codex's event schema is less settled than Claude's, so this parser is
+// deliberately permissive: it ignores events it does not recognise and falls
+// back to the last non-empty text it saw rather than failing.
+func CodexJSONLParser(stdout []byte) (*pipeline.Response, error) {
+	var (
+		last  string
+		usage pipeline.Usage
+		seen  bool
+	)
+
+	for _, line := range bytes.Split(stdout, []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 || line[0] != '{' {
+			continue
+		}
+		var ev struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+			Text    string `json:"text"`
+			Content string `json:"content"`
+			Usage   struct {
+				InputTokens       int `json:"input_tokens"`
+				OutputTokens      int `json:"output_tokens"`
+				CachedInputTokens int `json:"cached_input_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal(line, &ev); err != nil {
+			continue // not an event we understand; skip rather than fail
+		}
+		seen = true
+
+		for _, candidate := range []string{ev.Message, ev.Text, ev.Content} {
+			if s := strings.TrimSpace(candidate); s != "" {
+				last = s
+			}
+		}
+		usage.InputTokens += ev.Usage.InputTokens
+		usage.OutputTokens += ev.Usage.OutputTokens
+		usage.CacheReadTokens += ev.Usage.CachedInputTokens
+	}
+
+	if !seen {
+		// Not JSONL at all — treat it as plain output rather than erroring.
+		return PlainTextParser(stdout)
+	}
+	return &pipeline.Response{Content: last, Usage: usage}, nil
+}
+
+// ClaudePreset runs Claude Code non-interactively and reads its JSON output.
+// Authenticated by whatever the `claude` CLI is already logged into — a Pro or
+// Max subscription is enough; no API key is involved.
+//
+// dir is the working directory the agent sees. Pass "" for the current one.
+func ClaudePreset(dir string) Config {
+	return Config{
+		Command:    "claude",
+		Args:       []string{"-p", "--output-format", "json"},
+		PromptMode: PromptViaStdin,
+		Parse:      ClaudeJSONParser,
+		Dir:        dir,
+		ClientName: "claude-cli",
+	}
+}
+
+// CodexPreset runs Codex non-interactively and reads its JSONL event stream.
+func CodexPreset(dir string) Config {
+	return Config{
+		Command:    "codex",
+		Args:       []string{"exec", "--json", "-"},
+		PromptMode: PromptViaStdin,
+		Parse:      CodexJSONLParser,
+		Dir:        dir,
+		ClientName: "codex-cli",
+	}
+}
+
+// OpenCodePreset runs OpenCode non-interactively. It prints prose, so there is
+// no usage data to report — Response.Usage stays zero.
+//
+// model is the "provider/model" string OpenCode expects; pass "" for its
+// configured default.
+func OpenCodePreset(dir, model string) Config {
+	args := []string{"run"}
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+	args = append(args, PromptPlaceholder)
+
+	return Config{
+		Command:    "opencode",
+		Args:       args,
+		PromptMode: PromptAsArg,
+		Parse:      PlainTextParser,
+		Dir:        dir,
+		ClientName: "opencode-cli",
+	}
+}

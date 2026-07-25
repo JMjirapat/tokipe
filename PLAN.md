@@ -77,6 +77,12 @@ subscription upgrade. Until someone with API credit runs it, treat the
 prompt-caching benefit as **designed and unit-tested, not field-proven**, and
 do not quote a cache-hit rate in any external material.
 
+`providers/cli` does not close this gap and is not meant to. It removes the
+key requirement for *running* agentkit, but a CLI exposes no `cache_control`
+hooks, so it cannot verify our breakpoint placement. Its live test
+(`AGENTKIT_CLI_LIVE=1`) has been run and passes against `claude` 2.1.x,
+returning real content, model id, and usage.
+
 ### Known gaps carried into v1.1
 
 - `compress.CodeCompressor` is a deliberate stub (`CanHandle` always false);
