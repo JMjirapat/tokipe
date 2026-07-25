@@ -35,6 +35,11 @@ are how you verify caching is actually working in production.
 Unit tests run against `httptest` and need no credentials. The caching
 behaviour, however, can only be confirmed against the real endpoint.
 
+**You need Anthropic API credit for this, not a Claude subscription.** A Claude
+Pro or Max plan authenticates the Claude apps and Claude Code; it does not issue
+an `ANTHROPIC_API_KEY` for this endpoint. Get pay-as-you-go credit from
+console.anthropic.com. The run below costs a few cents.
+
 ```bash
 ANTHROPIC_API_KEY=sk-... go test -run TestPromptCachingAcrossTurns -v ./providers/anthropic/
 ```

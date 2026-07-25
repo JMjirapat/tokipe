@@ -47,9 +47,35 @@ state: what is decided, what is done, who is doing what.
 |---|---|
 | ≥30% input-token reduction on a representative workload | **57.1%** — `go run ./benchmarks`, enforced in CI |
 | Measurable % of requests short-circuited by preprocess | 3/12 turns (25%) in the benchmark workload |
-| `CacheReadTokens > 0` on turns after the first, real endpoint | Test exists and skips without a key: `providers/anthropic/integration_test.go`. **Manual run still outstanding** — must not be skipped at release sign-off |
+| `CacheReadTokens > 0` on turns after the first, real endpoint | **BLOCKED — see below.** Test written and skips cleanly without a key: `providers/anthropic/integration_test.go` |
 | Routing split across two tiers with no per-request routing code | `examples/local-routing` |
 | Core usable from two independent example programs with no shared non-agentkit code | `examples/rag-chatbot` and `examples/local-routing` |
+
+### Blocked: real-endpoint prompt-caching verification
+
+The one acceptance criterion that cannot be closed here needs **Anthropic API
+credit**, which is a separate product from a Claude Pro subscription. A Pro (or
+Max) plan authenticates the Claude apps and Claude Code; it does not issue an
+`ANTHROPIC_API_KEY` for `api.anthropic.com/v1/messages`, and routing a
+subscription session into a library's HTTP client is not a supported or
+permitted substitute. A ChatGPT/Codex subscription is likewise not Anthropic
+API access.
+
+What this does and does not leave unverified:
+
+- **Verified without a key** — that agentkit emits `cache_control: ephemeral`
+  on the right content blocks, truncates to the four deepest breakpoints, and
+  parses `cache_read_input_tokens` / `cache_creation_input_tokens` into
+  `Response.Usage`. All covered by `client_test.go` against `httptest`.
+- **Not verified** — that Anthropic's cache actually *hits* for our prefix
+  layout end to end. That is a claim about the provider's behaviour meeting
+  ours, and only a real call can settle it.
+
+Closing it costs roughly a few US cents: the test makes two calls capped at 64
+output tokens. It needs pay-as-you-go credit on console.anthropic.com, not a
+subscription upgrade. Until someone with API credit runs it, treat the
+prompt-caching benefit as **designed and unit-tested, not field-proven**, and
+do not quote a cache-hit rate in any external material.
 
 ### Known gaps carried into v1.1
 
