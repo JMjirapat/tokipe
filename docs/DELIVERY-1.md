@@ -1,9 +1,26 @@
-# Delivery 1 — agentkit v1.0.0-rc1
+# Delivery 1 — agentkit v1.0.0
 
 **Date:** 2026-07-26
 **Scope:** the complete BRD/tech-spec in [spec.md](spec.md), Phases 0–4
-**Status:** QA rounds 1-5 complete; all findings resolved, awaiting re-verification
-**Not yet:** tagged, pushed, or run against a real Anthropic endpoint
+**Status:** released as `v1.0.0`
+**Not yet:** pushed to a remote, or run against a real Anthropic endpoint
+
+**Tagged on the owner's decision, not on a QA sign-off.** QA-REPORT.md §9's two
+GO criteria are both met and the full verification suite passes, but QA had not
+issued a round 6 verdict when the tag was cut. Recorded here so nobody later
+reads the tag as evidence of a sign-off that did not happen.
+
+Two consequences of tagging now, both accepted deliberately:
+
+- **The interfaces in README §Stability are frozen as of this tag**, and they
+  have only ever been exercised by this repository's own examples and tests.
+  Spec §1.2's reusability criterion — adoption by two unrelated systems — is
+  still unproven. If real integration shows an interface is wrong, that is a
+  v2, per the freeze policy.
+- **The module path is still `agentkit`**, so this tag is not `go get`-able
+  from anywhere. It is a local milestone. Renaming to
+  `github.com/<org>/agentkit` later means re-tagging v1.0.0 on the new path,
+  because a different path is a different module.
 
 ## 0. QA history
 
@@ -287,8 +304,10 @@ because the owner has no API credit.
 ## 5. Handover checklist for the next phase
 
 - [x] Independent verification and QA rounds 1-5 — see [QA-REPORT.md](QA-REPORT.md)
-- [ ] QA round 6: re-verify against the GO criteria in QA-REPORT.md §9
+- [x] Tag `v1.0.0` — cut on the owner's decision; interfaces now frozen
+- [ ] QA round 6: re-verify against the GO criteria in QA-REPORT.md §9. If it
+      finds a Blocker, that is a `v1.0.1`, not an amended tag
+- [ ] Decide the final module path and re-tag on it
 - [ ] Decide the final module path (`agentkit` → `github.com/<org>/agentkit`)
 - [ ] Run the Anthropic prompt-caching test once credit exists
 - [ ] Set a git remote and push
-- [ ] Tag `v1.0.0` — after which the interfaces in README §Stability are frozen

@@ -11,36 +11,67 @@
 
 **Round 5 revision:** `044ccda`
 
+**Round 6 revision:** `71c62f0`
+
 **Source of truth:** [spec.md](spec.md)  
 **Delivery claim:** [DELIVERY-1.md](DELIVERY-1.md)  
 **QA procedure:** [QA-BRIEF.md](QA-BRIEF.md)  
-**Current result:** **NO-GO for `v1.0.0` after QA round 5**
+**Current result:** **GO for `v1.0.0` after QA round 6**
 
 ## 1. Executive summary
 
-All behavioural findings from QA rounds 1-4 now pass at their reported inputs.
-Revision `044ccda` builds successfully, passes the race detector, satisfies
-the stated coverage threshold, and reproduces the documented 57.1% synthetic
-benchmark reduction.
+Revision `71c62f0` resolves both round 5 items. The Delivery §2 inventory now
+matches the repository and is protected by `TestDeliveryInventoryIsCurrent`;
+the extension-matrix completeness check now uses exact canonical identifiers.
+All findings from QA rounds 1-5 pass at their reported inputs.
 
-Round 5 found that the test inventory in Delivery §2 was not updated after all
-new regression tests were added. The exact documented commands produce
-different numbers from the claimed result.
+The revision builds without CGo, passes `go vet`, the root and nested-module
+race suites, 30 repeated root-suite runs, the independent metrics panic
+regression, all documented coverage values, and the documented 57.1%
+synthetic benchmark reduction. No new demonstrated defect was found.
 
 | Severity | Count |
 |---|---:|
-| Blocker | 1 |
+| Blocker | 0 |
 | Major | 0 |
 | Minor | 0 |
-| Note | 1 |
+| Note | 0 |
 
-No behavioural release blocker remains in the areas that can be tested without
-external credentials. The current NO-GO is the QA brief's explicit rule that
-a false evidence claim in `DELIVERY-1.md` §2 is a Blocker.
+The known external-integration gaps in Delivery §3 remain explicit and are not
+release blockers under the supplied QA brief.
 
 No production source code was changed during this review.
 
-## 2. QA round 5 findings
+## 2. QA round 6 re-verification — clean
+
+### Delivery inventory
+
+The exact Delivery §2 commands now produce the claimed values:
+
+```text
+228 test/example functions
+25 packages
+0 failures
+```
+
+`TestDeliveryInventoryIsCurrent` passed and verifies the two machine-readable
+markers against the repository. The run-event total is no longer presented as
+a fixed numeric claim, so it cannot silently become stale when subtests change.
+
+### Extension matrix
+
+`TestMatrixCoversEveryExtensionMethod` and
+`TestEveryCallerSuppliedMethodHonoursItsPanicContract` both passed. The matcher
+now requires exact canonical interface-method identifiers; the round 5
+bare-method-name fallback is gone.
+
+### Regression and stability
+
+The independent external-module reproduction
+`TestPanickingMetricsBackendDoesNotBreakTurn` passed. The complete root suite
+also passed 30 consecutive runs, in addition to the race-enabled baseline.
+
+## 3. QA round 5 findings — resolved at their original inputs
 
 ### [Blocker] Delivery §2 test inventory is stale
 
@@ -108,7 +139,7 @@ current behavioural defect. For future enforceability, prefer exact canonical
 identifiers and handle function-type exceptions explicitly rather than
 falling back to a bare method-name substring.
 
-## 3. QA round 4 finding — resolved at its original inputs
+## 4. QA round 4 finding — resolved at its original inputs
 
 All three metrics failure modes pass on revision `044ccda`: `Recorder.Counter`
 panic, `Counter.Inc` panic, and a nil counter. The finding is retained below as
@@ -191,7 +222,7 @@ Contain panics from both `Recorder.Counter` and `Counter.Inc`, and treat a nil
 counter as no-op. Add both methods to the extension matrix so its completeness
 claim is enforceable.
 
-## 4. QA round 3 finding — resolved at its original inputs
+## 5. QA round 3 finding — resolved at its original inputs
 
 Both parts of the round 3 finding pass on revision `e4db7c7`. The finding is
 retained below as historical evidence.
@@ -264,7 +295,7 @@ Choose and document one consistent contract:
 
 Add a focused test for the chosen behaviour.
 
-## 5. QA round 2 findings — resolved at their original inputs
+## 6. QA round 2 findings — resolved at their original inputs
 
 All three round 2 inputs pass on revision `03acda9`. The findings are retained
 below as historical evidence of what was re-verified.
@@ -437,7 +468,7 @@ Determine the newest message from `Messages` independently of whether `Query`
 is populated, while continuing to avoid duplicating the current turn when both
 representations are present.
 
-## 6. QA round 1 findings — resolved at their original inputs
+## 7. QA round 1 findings — resolved at their original inputs
 
 The six findings below are retained as the historical round 1 record. Their
 exact original inputs all pass on revision `b5cdd38`; round 2 findings above
@@ -752,7 +783,7 @@ Narrow the documentation to built-in optimization dependency failures and
 document cancellation, custom-stage errors, and programming/configuration
 errors separately.
 
-## 7. Verification results
+## 8. Verification results
 
 ### Baseline
 
@@ -763,6 +794,7 @@ go build ./...
 go vet ./...
 go test -race ./...
 CGO_ENABLED=0 go build ./...
+go test -count=30 ./...
 ```
 
 ### Nested modules
@@ -819,10 +851,11 @@ The reported package coverage values were reproduced:
 | `toolcache` | 93.7% |
 | `config` | 90.5% |
 | `lazyload` | 88.1% |
+| `metrics` | 96.7% |
 
 The five packages named by the specification all exceed the required 80%.
 
-## 8. Areas reviewed with no demonstrated defect
+## 9. Areas reviewed with no demonstrated defect
 
 - Cache-aligner breakpoint computation is deterministic for identical inputs.
 - The core aligner does not place a breakpoint after retrieved chunks.
@@ -842,16 +875,12 @@ The five packages named by the specification all exceed the required 80%.
 
 The known gaps in `DELIVERY-1.md` §3 were not re-reported as defects.
 
-## 9. Release decision
+## 10. Release decision
 
-**Current decision: NO-GO**
+**Current decision: GO**
 
-The behavioural criteria from rounds 1-4 are satisfied at their reported
-inputs. The decision can change to **GO** when:
-
-1. Delivery §2 reports the reproducible final test inventory.
-2. The full root and nested-module verification commands pass once more after
-   that documentation update.
-
-The extension-matrix matcher improvement is recommended but does not block the
-tag because every current method has a concrete case.
+All demonstrated findings from rounds 1-5 are resolved, the Delivery §2
+evidence is reproducible, and the required full verification passed after the
+final documentation and guard-test update. The limitations already disclosed
+in Delivery §3—real Anthropic, pgvector, and adoption validation—remain
+release-owner risk decisions rather than newly discovered QA defects.
