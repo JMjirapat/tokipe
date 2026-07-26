@@ -134,7 +134,7 @@ func WithSymbolDensity(floor, ceil float64) Option {
 // counter with labels {"client": <chosen client name>, "reason": <decision
 // reason>}. A nil Recorder is fine (metrics are always opt-in).
 func WithMetrics(rec metrics.Recorder) Option {
-	return func(r *HeuristicRouter) { r.rec = rec }
+	return func(r *HeuristicRouter) { r.rec = metrics.Or(rec) }
 }
 
 // NewHeuristicRouter builds a router over the given tiers. Tiers with a nil

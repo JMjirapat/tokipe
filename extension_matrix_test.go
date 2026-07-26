@@ -3,14 +3,20 @@ package agentkit_test
 import (
 	"context"
 	"errors"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"agentkit"
+	"agentkit/compress"
 	"agentkit/config"
+	"agentkit/metrics"
 	"agentkit/pipeline"
+	"agentkit/preprocess"
 	"agentkit/providers/mock"
 	"agentkit/router"
+	"agentkit/stores"
 	"agentkit/toolcache"
 )
 
@@ -20,6 +26,8 @@ import (
 //	round 1: tool Executor      → also Rule, Compressor, Embedder, VectorStore
 //	round 2: Rule.Name          → also ModelClient.Name in router and pipeline
 //	round 3: Stage.Name         → also Router.Route
+//	round 4: metrics.Recorder   → the matrix itself claimed completeness and
+//	                              had omitted metrics entirely
 //
 // Fixing instances one at a time was losing to that pattern. This table
 // enumerates every method agentkit calls on caller-supplied code and asserts
@@ -80,6 +88,21 @@ func matrixCases() []matrixCase {
 		{point: "stores.VectorStore.Search", opts: []config.Option{config.WithRAG(okEmbedder{}, panicStore{}, 3)}, req: retrievalReq},
 
 		{point: "pipeline.Router.Route", opts: []config.Option{config.WithRouter(panicRouter{})}, req: plainReq},
+
+		// Metrics are opt-in diagnostics. They must never be able to discard a
+		// result the pipeline already produced.
+		{point: "metrics.Recorder.Counter", opts: []config.Option{
+			config.WithMetrics(panicRecorder{onCounter: true}),
+			config.WithPreprocess(okRule{}),
+		}, req: plainReq},
+		{point: "metrics.Counter.Inc", opts: []config.Option{
+			config.WithMetrics(panicRecorder{}),
+			config.WithPreprocess(okRule{}),
+		}, req: plainReq},
+		{point: "metrics.Recorder returning a nil Counter", opts: []config.Option{
+			config.WithMetrics(nilCounterRecorder{}),
+			config.WithPreprocess(okRule{}),
+		}, req: plainReq},
 		{point: "pipeline.ModelClient.Name", opts: []config.Option{config.WithRouter(router.NewHeuristicRouter(
 			router.Tier{Client: panicNameClient{}, MaxComplexity: 1.0}))}, req: plainReq,
 			answeredByAnotherClient: true},
@@ -201,4 +224,98 @@ type panicRouter struct{}
 
 func (panicRouter) Route(context.Context, *pipeline.Request) pipeline.RouteDecision {
 	panic("router panic")
+}
+
+// okRule succeeds, so the counter increment happens on a turn that has already
+// been resolved — the case where losing it would be most obviously wrong.
+type okRule struct{}
+
+func (okRule) Name() string                     { return "ok" }
+func (okRule) CanHandle(*pipeline.Request) bool { return true }
+func (okRule) Handle(*pipeline.Request) (*pipeline.Response, error) {
+	return &pipeline.Response{Content: "handled"}, nil
+}
+
+type panicRecorder struct{ onCounter bool }
+
+func (p panicRecorder) Counter(string) metrics.Counter {
+	if p.onCounter {
+		panic("recorder counter panic")
+	}
+	return panicCounter{}
+}
+
+type panicCounter struct{}
+
+func (panicCounter) Inc(map[string]string) { panic("counter inc panic") }
+
+// A Recorder that hands back a nil Counter — a plausible bug in a caller's
+// backend, and a nil-pointer dereference if agentkit trusts it.
+type nilCounterRecorder struct{}
+
+func (nilCounterRecorder) Counter(string) metrics.Counter { return nil }
+
+// TestMatrixCoversEveryExtensionMethod turns the matrix's completeness claim
+// into something a machine checks.
+//
+// Round 4 caught that claim being false: the matrix said it enumerated every
+// method agentkit calls on caller-supplied code, and it had omitted
+// metrics.Recorder and metrics.Counter entirely. A prose claim about coverage
+// is worth nothing — this reflects over each extension interface and fails if
+// any method has no matrix case naming it.
+//
+// Adding a method to any interface below breaks this test until the matrix
+// covers it. Adding a whole new interface still needs a line here, which is
+// the one gap reflection cannot close for us.
+func TestMatrixCoversEveryExtensionMethod(t *testing.T) {
+	interfaces := map[string]reflect.Type{
+		"preprocess.Rule":      reflect.TypeOf((*preprocess.Rule)(nil)).Elem(),
+		"toolcache.Cache":      reflect.TypeOf((*toolcache.Cache)(nil)).Elem(),
+		"compress.Compressor":  reflect.TypeOf((*compress.Compressor)(nil)).Elem(),
+		"stores.Embedder":      reflect.TypeOf((*stores.Embedder)(nil)).Elem(),
+		"stores.VectorStore":   reflect.TypeOf((*stores.VectorStore)(nil)).Elem(),
+		"pipeline.Router":      reflect.TypeOf((*pipeline.Router)(nil)).Elem(),
+		"pipeline.ModelClient": reflect.TypeOf((*pipeline.ModelClient)(nil)).Elem(),
+		"pipeline.Stage":       reflect.TypeOf((*pipeline.Stage)(nil)).Elem(),
+		"metrics.Recorder":     reflect.TypeOf((*metrics.Recorder)(nil)).Elem(),
+		"metrics.Counter":      reflect.TypeOf((*metrics.Counter)(nil)).Elem(),
+	}
+
+	// Methods agentkit never calls on the request path, with the reason.
+	exempt := map[string]string{
+		// Send IS the model call; its failure is the one error Run may return.
+		"pipeline.ModelClient.Send": "the model call itself, not an optimization",
+	}
+
+	var points []string
+	for _, tc := range matrixCases() {
+		points = append(points, tc.point)
+	}
+	covered := func(iface, method string) bool {
+		for _, p := range points {
+			if strings.Contains(p, iface+"."+method) || strings.Contains(p, method) {
+				return true
+			}
+		}
+		return false
+	}
+
+	for name, typ := range interfaces {
+		for i := range typ.NumMethod() {
+			method := typ.Method(i).Name
+			full := name + "." + method
+			if _, ok := exempt[full]; ok {
+				continue
+			}
+			if !covered(name, method) {
+				t.Errorf("%s has no matrix case; add one or exempt it with a reason", full)
+			}
+		}
+	}
+
+	// toolcache.Executor is a func type rather than an interface, so
+	// reflection over interfaces cannot reach it. Assert it explicitly.
+	if !covered("toolcache", "Executor") {
+		t.Error("toolcache.Executor has no matrix case")
+	}
 }

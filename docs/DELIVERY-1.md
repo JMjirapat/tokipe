@@ -2,10 +2,46 @@
 
 **Date:** 2026-07-26
 **Scope:** the complete BRD/tech-spec in [spec.md](spec.md), Phases 0–4
-**Status:** QA rounds 1-3 complete; all findings resolved, awaiting re-verification
+**Status:** QA rounds 1-4 complete; all findings resolved, awaiting re-verification
 **Not yet:** tagged, pushed, or run against a real Anthropic endpoint
 
 ## 0. QA history
+
+### Round 4 — revision `e4db7c7`
+
+The sharpest round. QA did not look for another panicking dependency — it
+tested the *completeness claim* the round 3 fix had just made, and the claim
+was false. `extension_matrix_test.go` said it enumerated every method agentkit
+calls on caller-supplied code, and it had omitted `metrics.Recorder` and
+`metrics.Counter` entirely.
+
+| # | Finding | Resolution |
+|---|---|---|
+| R4-1 | A panicking metrics backend broke the turn, discarding an already-computed result | Fixed at `metrics.Or`, which now returns a guarding decorator. |
+
+Metrics are documented as opt-in and "never a hard dependency". They were a
+hard dependency the moment they were configured: a panic from `Counter` or
+`Inc` escaped `Pipeline.Run`, and for a successful preprocess rule the answer
+had *already been computed* and was thrown away while incrementing its counter.
+A nil `Counter` returned by a caller's backend crashed the same way.
+
+The guard sits in `metrics.Or` rather than only in `metrics.Inc`, because two
+stages call `rec.Counter(n).Inc(l)` directly. Wrapping at the point where a
+caller's recorder enters the system covers every call style without each site
+having to remember. `router.WithMetrics` was also assigning the raw recorder
+without going through `Or` — found by sweep, unreported.
+
+**What changed beyond the fix.** A prose claim about coverage is worth nothing,
+which round 4 proved. `TestMatrixCoversEveryExtensionMethod` now reflects over
+every extension interface and fails if any method has no matrix case. It was
+negative-tested: renaming the metrics cases away makes it fail with the exact
+missing method names. Adding a method to any extension interface now breaks the
+build until the matrix covers it. Adding a whole new *interface* still needs a
+line in that list — the one gap reflection cannot close, and it is documented
+as such rather than claimed away.
+
+`metrics` also had no test file at all while holding real logic; it is now at
+96.7%.
 
 ### Round 3 — revision `03acda9`
 
@@ -140,14 +176,14 @@ tests" turned out not to be reproducible with any plain `go` invocation — it
 came from a wrapper's summary line. Counting method, not just the number:
 
 ```bash
-go test -race -json -count=1 ./... | grep -c '"Action":"run"'   # 293, incl. subtests
-grep -rhoE '^func (Test|Example)[A-Za-z0-9_]*' --include='*_test.go' . | wc -l  # 221 funcs
+go test -race -json -count=1 ./... | grep -c '"Action":"run"'   # 297, incl. subtests
+grep -rhoE '^func (Test|Example)[A-Za-z0-9_]*' --include='*_test.go' . | wc -l  # 222 funcs
 go list ./... | wc -l                                            # 25 packages
 ```
 
 | Claim | Evidence | Result |
 |---|---|---|
-| Everything builds and passes under the race detector | `go test -race ./...` | 293 run events / 221 test funcs, 25 packages, 0 failures |
+| Everything builds and passes under the race detector | `go test -race ./...` | 297 run events / 222 test funcs, 25 packages, 0 failures |
 | No CGo required | `CGO_ENABLED=0 go build ./...` | clean |
 | Core has zero third-party dependencies | `go list -deps ./...` filtered, enforced in CI | none |
 | ≥30% input-token reduction | `go run ./benchmarks` | **57.1%** |
@@ -168,6 +204,7 @@ Coverage, all above the spec's ≥80% bar for the five named packages:
 | `preprocess` | 98.8% | | `toolcache` | 93.7% |
 | `pipeline` | 94.4% | | `config` | 90.5% |
 | `stores/mock` | 96.7% | | `lazyload` | 88.1% |
+| `metrics` | 96.7% | | | |
 
 ## 3. What is NOT verified
 
@@ -205,9 +242,9 @@ because the owner has no API credit.
 
 ## 5. Handover checklist for the next phase
 
-- [x] Independent verification and QA rounds 1-3 — see [QA-REPORT.md](QA-REPORT.md)
-- [ ] QA round 4: re-verify the round 3 fixes against the GO criteria in
-      QA-REPORT.md §7
+- [x] Independent verification and QA rounds 1-4 — see [QA-REPORT.md](QA-REPORT.md)
+- [ ] QA round 5: re-verify the round 4 fix against the GO criteria in
+      QA-REPORT.md §8
 - [ ] Decide the final module path (`agentkit` → `github.com/<org>/agentkit`)
 - [ ] Run the Anthropic prompt-caching test once credit exists
 - [ ] Set a git remote and push

@@ -25,18 +25,54 @@ type nopCounter struct{}
 
 func (nopCounter) Inc(map[string]string) {}
 
-// Or returns r, or a no-op Recorder when r is nil. Every stage constructor
-// should funnel its recorder through this so a nil dependency can never panic.
+// Or returns r wrapped so that it can never break a turn, or a no-op Recorder
+// when r is nil. Every stage constructor funnels its recorder through this.
+//
+// The wrapping is what makes "metrics are opt-in and never a hard dependency"
+// true rather than aspirational. A Recorder is caller-supplied code called on
+// the request path, so Counter and Inc get the same treatment as every other
+// extension point: a panic is contained, and a nil Counter degrades to a
+// no-op. Diagnostics must never be able to discard a result the pipeline has
+// already produced.
+//
+// Guarding here rather than only in Inc means direct `rec.Counter(n).Inc(l)`
+// call sites are covered too, without each one having to remember.
 func Or(r Recorder) Recorder {
-	if r == nil {
+	switch r.(type) {
+	case nil:
 		return Nop{}
+	case Nop, safeRecorder:
+		return r // already harmless; do not wrap twice
 	}
-	return r
+	return safeRecorder{inner: r}
 }
 
 // Inc is a nil-safe convenience: metrics.Inc(rec, "cache_hit", labels).
 func Inc(r Recorder, name string, labels map[string]string) {
 	Or(r).Counter(name).Inc(labels)
+}
+
+// safeRecorder contains panics from a caller-supplied Recorder.
+type safeRecorder struct{ inner Recorder }
+
+func (s safeRecorder) Counter(name string) (c Counter) {
+	defer func() {
+		if recover() != nil {
+			c = nopCounter{}
+		}
+	}()
+	if got := s.inner.Counter(name); got != nil {
+		return safeCounter{inner: got}
+	}
+	return nopCounter{}
+}
+
+// safeCounter contains panics from a caller-supplied Counter.
+type safeCounter struct{ inner Counter }
+
+func (s safeCounter) Inc(labels map[string]string) {
+	defer func() { _ = recover() }()
+	s.inner.Inc(labels)
 }
 
 // InMemory is a Recorder that tallies counts in memory. Intended for tests and

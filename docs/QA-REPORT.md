@@ -7,35 +7,120 @@
 
 **Round 3 revision:** `03acda9`
 
+**Round 4 revision:** `e4db7c7`
+
 **Source of truth:** [spec.md](spec.md)  
 **Delivery claim:** [DELIVERY-1.md](DELIVERY-1.md)  
 **QA procedure:** [QA-BRIEF.md](QA-BRIEF.md)  
-**Current result:** **NO-GO for `v1.0.0` after QA round 3**
+**Current result:** **NO-GO for `v1.0.0` after QA round 4**
 
 ## 1. Executive summary
 
-All six inputs from QA round 1 and all three inputs from QA round 2 now pass.
-Revision `03acda9` builds successfully, passes the race detector, satisfies the
-stated coverage threshold, and reproduces the documented 57.1% synthetic
-benchmark reduction.
+All findings from QA rounds 1-3 now pass at their reported inputs. Revision
+`e4db7c7` builds successfully, passes the race detector, satisfies the stated
+coverage threshold, and reproduces the documented 57.1% synthetic benchmark
+reduction.
 
-Round 3 found one remaining documentation/behaviour mismatch:
+Round 4 tested the new extension matrix's claim that it covers every method
+agentkit calls on caller-supplied code. It found one omitted extension:
+`metrics.Recorder`/`metrics.Counter`.
 
 | Severity | Count |
 |---|---:|
-| Blocker | 0 |
+| Blocker | 1 |
 | Major | 0 |
-| Minor | 1 |
+| Minor | 0 |
 
-The release remains NO-GO only because the public package documentation says
-a caller-supplied stage panic is returned as a `StageError`, while the
-deliberate implementation policy is to let that panic propagate. The same
-error path calls `Stage.Name()` without protection, so a panicking name method
-can replace an otherwise returnable `StageError`.
+The release remains NO-GO because a panic from an opt-in metrics backend still
+escapes `Pipeline.Run` and discards an otherwise successful result. This makes
+metrics a hard runtime dependency when configured, contradicting both the
+fail-open guarantee and the metrics contract.
 
 No production source code was changed during this review.
 
-## 2. QA round 3 finding
+## 2. QA round 4 finding
+
+### [Blocker] A panicking metrics backend breaks the turn
+
+**File:** `metrics/metrics.go:35-39` and every stage metrics call site
+
+**Contract:** `spec.md` §2.5.1 and §2.5.5; README §Design rules
+
+**Claim**
+
+Metrics are opt-in and never a hard dependency. Revision `e4db7c7` additionally
+claims that `extension_matrix_test.go` enumerates every method agentkit calls
+on caller-supplied code.
+
+**Reality**
+
+The extension matrix covers rules, caches, compressors, retrieval, routing,
+model names, and stages, but omits both metrics extension methods:
+
+```go
+Recorder.Counter(name string) Counter
+Counter.Inc(labels map[string]string)
+```
+
+`metrics.Inc` calls both methods without a recovery boundary. A panic from
+either method escapes `Pipeline.Run` and can discard a response already
+produced by a successful preprocess rule.
+
+**Concrete input**
+
+```go
+type panicRecorder struct{ onCounter bool }
+
+func (p panicRecorder) Counter(string) metrics.Counter {
+    if p.onCounter {
+        panic("recorder counter panic")
+    }
+    return panicCounter{}
+}
+
+type panicCounter struct{}
+
+func (panicCounter) Inc(map[string]string) {
+    panic("counter inc panic")
+}
+
+kit := agentkit.New(
+    model,
+    config.WithMetrics(panicRecorder{onCounter: true}),
+    config.WithPreprocess(successfulRule),
+)
+_, _ = kit.Run(context.Background(), &pipeline.Request{Query: "q"})
+```
+
+The same result occurs when `Counter` succeeds but `Counter.Inc` panics.
+
+**Observed results**
+
+```text
+metrics panic escaped and broke the turn: recorder counter panic
+metrics panic escaped and broke the turn: counter inc panic
+metrics panic escaped and broke the turn: invalid memory address (nil Counter)
+```
+
+**Impact**
+
+A diagnostics-only dependency can take down an otherwise successful request.
+For a successful preprocess rule, the deterministic response has already been
+computed but is lost while incrementing its counter.
+
+This is a broken fail-open guarantee and therefore a Blocker under
+`QA-BRIEF.md`.
+
+**Required before GO**
+
+Contain panics from both `Recorder.Counter` and `Counter.Inc`, and treat a nil
+counter as no-op. Add both methods to the extension matrix so its completeness
+claim is enforceable.
+
+## 3. QA round 3 finding — resolved at its original inputs
+
+Both parts of the round 3 finding pass on revision `e4db7c7`. The finding is
+retained below as historical evidence.
 
 ### [Minor] Custom-stage panics are documented as returned `StageError`s
 
@@ -105,7 +190,7 @@ Choose and document one consistent contract:
 
 Add a focused test for the chosen behaviour.
 
-## 3. QA round 2 findings — resolved at their original inputs
+## 4. QA round 2 findings — resolved at their original inputs
 
 All three round 2 inputs pass on revision `03acda9`. The findings are retained
 below as historical evidence of what was re-verified.
@@ -278,7 +363,7 @@ Determine the newest message from `Messages` independently of whether `Query`
 is populated, while continuing to avoid duplicating the current turn when both
 representations are present.
 
-## 4. QA round 1 findings — resolved at their original inputs
+## 5. QA round 1 findings — resolved at their original inputs
 
 The six findings below are retained as the historical round 1 record. Their
 exact original inputs all pass on revision `b5cdd38`; round 2 findings above
@@ -593,7 +678,7 @@ Narrow the documentation to built-in optimization dependency failures and
 document cancellation, custom-stage errors, and programming/configuration
 errors separately.
 
-## 5. Verification results
+## 6. Verification results
 
 ### Baseline
 
@@ -653,7 +738,7 @@ The reported package coverage values were reproduced:
 | `preprocess` | 98.8% |
 | `rag` | 97.7% |
 | `cache` | 97.2% |
-| `pipeline` | 97.0% |
+| `pipeline` | 94.4% |
 | `stores/mock` | 96.7% |
 | `providers/anthropic` | 94.6% |
 | `providers/cli` | 94.3% |
@@ -663,7 +748,7 @@ The reported package coverage values were reproduced:
 
 The five packages named by the specification all exceed the required 80%.
 
-## 6. Areas reviewed with no demonstrated defect
+## 7. Areas reviewed with no demonstrated defect
 
 - Cache-aligner breakpoint computation is deterministic for identical inputs.
 - The core aligner does not place a breakpoint after retrieved chunks.
@@ -683,16 +768,16 @@ The five packages named by the specification all exceed the required 80%.
 
 The known gaps in `DELIVERY-1.md` §3 were not re-reported as defects.
 
-## 7. Release decision
+## 8. Release decision
 
 **Current decision: NO-GO**
 
-The round 1 and round 2 criteria are satisfied at their reported inputs. The
-decision can change to **GO** when:
+The round 1-3 criteria are satisfied at their reported inputs. The decision can
+change to **GO** when:
 
-1. The custom-stage panic contract in `agentkit.go` and README matches the
-   deliberate runtime behaviour.
-2. A `Stage.Name()` panic cannot replace an error already returned by
-   `Stage.Process`, or that limitation is documented explicitly.
-3. A focused regression test pins the chosen contract.
-4. The full root and nested-module verification commands pass again.
+1. Panics from `Recorder.Counter` and `Counter.Inc` cannot escape or discard a
+   successful result.
+2. A nil `Counter` degrades to a no-op rather than panicking.
+3. Both metrics methods are represented in the extension matrix.
+4. Focused regression tests pin these behaviours.
+5. The full root and nested-module verification commands pass again.
