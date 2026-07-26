@@ -99,9 +99,19 @@ func (c *Client) streamLines(
 			_ = stdout.Close()
 			return cmd.Wait()
 		}
-		// cancel kills a subprocess the consumer walked away from, rather than
-		// leaving it running until its own timeout.
+		// abandoned tracks whether the consumer walked away mid-stream.
+		//
+		// Order matters and was wrong before: reaping first WAITS for the child,
+		// so a consumer that breaks out of the range loop blocked until the CLI
+		// exited on its own or the (five-minute) timeout fired. Cancelling first
+		// kills the child, and the wait then returns immediately. Under load the
+		// old order held request goroutines and subprocesses open long after the
+		// client had disconnected.
+		abandoned := true
 		defer func() {
+			if abandoned {
+				cancel()
+			}
 			_ = reap()
 			cancel()
 		}()
@@ -123,10 +133,11 @@ func (c *Client) streamLines(
 
 		for scanner.Scan() {
 			if !emit(c.cfg.StreamParse(scanner.Text(), false)) {
-				return // consumer stopped; the defer reaps and cancels
+				return // consumer stopped; the defer cancels, then reaps
 			}
 		}
 		if err := scanner.Err(); err != nil {
+			abandoned = false
 			_ = reap()
 			yield(pipeline.Delta{ModelUsed: name}, fmt.Errorf("cli %s: read stdout: %w", c.cfg.Command, err))
 			return
@@ -136,6 +147,7 @@ func (c *Client) streamLines(
 		if !emit(c.cfg.StreamParse("", true)) {
 			return
 		}
+		abandoned = false
 
 		// A CLI that printed a good answer and then exited non-zero is still a
 		// failure worth reporting — but the text is already in the caller's

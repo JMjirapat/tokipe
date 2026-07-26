@@ -2,13 +2,54 @@
 
 **Date:** 2026-07-27
 **Scope:** ROADMAP Phases 5–8, plus the module-path rename
-**Status:** feature-complete, awaiting independent verification
+**Status:** QA round 1 complete; all nine findings resolved, awaiting re-verification
 **Range:** `v1.0.0-agentkit-path..HEAD` — six commits
 **Not yet:** pushed to a remote, or run against a real Anthropic endpoint
 
 Delivery 1 ([DELIVERY-1.md](DELIVERY-1.md)) covered the original spec, Phases
 0–4, and is frozen. This document covers everything since. Read them in order;
 this one does not repeat what that one established.
+
+## 0. QA round 1 — revision `093fd6c`
+
+[QA-REPORT-2.md](QA-REPORT-2.md) returned **NO-GO** with 2 Blockers and 7
+Majors. Every finding was reproduced independently before being fixed; all nine
+were real, and none was disputed.
+
+| # | Finding | Resolution |
+|---|---|---|
+| B1 | The CI dependency guard still excluded the *old* module path, so it flagged every internal package and would fail the build | Pattern updated; the exact CI command now passes |
+| B2 | A `TokenCounter` panic escaped `Pipeline.Run` during trimming | Every counter call is behind the boundary; both missed extension points registered |
+| M1 | A duplicated current turn was charged twice, dropping history the real request had room for | `CountRequest` charges `Query` only when it is not already the newest message |
+| M2 | An over-budget request with no droppable message never reached the chunk pass | Chunk trimming now runs regardless |
+| M3 | Abandoning a CLI stream waited for the child before cancelling it | Cancel first, then reap |
+| M4 | Ordinary cache `Get` errors were invisible — the exact case Phase 7 existed for | Reported, plus four other silent seams found by the same audit |
+| M5 | `CodeCompressor` stripped `//go:build`, `//go:embed` and cgo preambles | Directive-bearing files are refused outright |
+| M6 | Dedupe discarded a near-copy differing in one decisive value | Threshold raised to 0.95 and a value-agreement guard added |
+| M7 | `metrics/otel` declared `go 1.25.0`, contradicting the documented 1.23 minimum | OTel pinned to 1.31.0; verified with `GOTOOLCHAIN=local` |
+
+**Three of these are failures of my own verification, not just of the code.**
+
+*B1* is the sharpest. I checked that claim by hand with a corrected grep, not
+with the command CI actually runs — so my check passed while the job would have
+failed on the first push. Verifying a claim with a different command than the
+one documented is not verification.
+
+*B2* got past the extension matrix because the matrix only checks interfaces it
+has been told about, and Phase 6 added two — `budget.TokenCounter` and
+`history.Summarizer` — that nobody registered. The guard reported completeness
+over a list that was incomplete. Both are now in it.
+
+*M7* happened because `go mod tidy` raised both the OTel version and the `go`
+directive, and I never read the result. It passed locally only because
+`GOTOOLCHAIN=auto` silently downloaded Go 1.25.
+
+**A regression test that could not fail.** The first `budget.TokenCounter`
+matrix case used a fixed 64-call grace period before panicking; trimming
+finished inside it, so the case passed *with the fix reverted*. It now measures
+the guarded call count for the request and panics on the first call after it.
+Every fix in this round was negative-tested the same way — reverted, confirmed
+failing, restored.
 
 ---
 
@@ -45,10 +86,10 @@ CGO_ENABLED=0 go build ./...
 
 | Claim | Command | Result |
 |---|---|---|
-| Root module builds, vets and passes under `-race` | `go test -race -count=1 ./...` | 0 failures, 29 packages |
+| Root module builds, vets and passes under `-race` | `go test -race -count=1 ./...` | 0 failures, 29 packages, 390 test functions |
 | No CGo required | `CGO_ENABLED=0 go build ./...` | clean |
-| Core still has zero third-party dependencies | `go list -deps ./...`, enforced in CI | none |
-| Three nested modules build and pass | `cd <mod> && go test -race ./...` | pgvector 14, redis 7, otel 7 |
+| Core still has zero third-party dependencies | the exact CI command, re-run verbatim | none |
+| Three nested modules build and pass, on Go 1.23 | `cd <mod> && GOTOOLCHAIN=local go test -race ./...` | pgvector 14, redis 7, otel 7 |
 | v1 token reduction unchanged by any of this | `go run ./benchmarks` | **57.1%** (target ≥30%) |
 | Phase 6 saving, measured separately | same, long-loop section | **54.6%** over 100 turns, peak 1192 vs a 1200 budget |
 | Streaming works against real CLIs | `AGENTKIT_CLI_LIVE=1 go test -run TestLiveCLIStreaming ./providers/cli/` | claude, codex, opencode all stream |
@@ -143,8 +184,9 @@ found by tests written specifically to doubt a claim rather than to confirm it.
 
 ## 6. Handover
 
-- [ ] Independent QA — see [QA-BRIEF.md](QA-BRIEF.md), which now covers this
-      delivery's areas as well as Delivery 1's
+- [x] Independent QA round 1 — see [QA-REPORT-2.md](QA-REPORT-2.md)
+- [ ] QA round 2: re-verify the nine fixes against the GO criteria in
+      QA-REPORT-2 §5
 - [ ] Decide whether the root package should be renamed `tokipe`
 - [ ] Push to `github.com/JMjirapat/tokipe` (remote configured, nothing pushed)
 - [ ] Run the Anthropic prompt-caching test once API credit exists

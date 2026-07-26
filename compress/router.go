@@ -86,7 +86,17 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 		for _, c := range s.compressors {
 			// Compressors are caller-supplied; a panic must leave the chunk
 			// uncompressed rather than fail the turn (spec §2.5.1).
-			if c == nil || !safe.Bool(func() bool { return c.CanHandle(original) }) {
+			if c == nil {
+				continue
+			}
+			canHandle, cErr := safe.Value(func() (bool, error) { return c.CanHandle(original), nil })
+			if cErr != nil {
+				metrics.Degrade(s.rec, metrics.Degradation{
+					Stage: s.Name(), Reason: "compressor_canhandle_panicked", Err: cErr,
+				})
+				continue
+			}
+			if !canHandle {
 				continue
 			}
 			compressed, err := safe.Value(func() (string, error) { return c.Compress(original) })

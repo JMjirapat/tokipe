@@ -100,8 +100,13 @@ func (c *CodeCompressor) CanHandle(content string) bool {
 	if !strings.Contains(content, "package ") {
 		return false
 	}
-	_, err := parseGo(content)
-	return err == nil
+	file, err := parseGo(content)
+	if err != nil {
+		return false
+	}
+	// Decline directive-bearing files here too, so the router hands them to the
+	// next compressor rather than to a Compress that will decline anyway.
+	return !hasDirectives(file)
 }
 
 // Compress removes comments, optionally elides bodies, and re-prints.
@@ -113,6 +118,13 @@ func (c *CodeCompressor) Compress(content string) (string, error) {
 	fset, file, err := parseGoWithFset(content)
 	if err != nil {
 		return "", fmt.Errorf("compress: not valid Go: %w", err)
+	}
+
+	// A file carrying compiler directives is refused rather than compressed.
+	// See hasDirectives: the round-trip check cannot catch this class, because
+	// the output parses and declares everything — it just compiles differently.
+	if hasDirectives(file) {
+		return content, nil
 	}
 
 	before := declCount(file)
@@ -142,6 +154,67 @@ func (c *CodeCompressor) Compress(content string) (string, error) {
 		return content, nil // no win; never grow a prompt in the name of shrinking it
 	}
 	return out, nil
+}
+
+// isDirective reports whether a comment is a compiler directive rather than
+// prose.
+//
+// This distinction is the difference between "removes comments" and "changes
+// what the code does". //go:build selects whether a file compiles at all;
+// //go:embed decides what ships inside the binary; a cgo preamble is C source.
+// Removing any of them produces a file that still parses and still declares
+// everything — so the round-trip check passes — while meaning something
+// materially different.
+//
+// Matched conservatively: the //tool:directive form Go specifies (no space
+// after //), plus the cgo preamble, plus the older //line and //export forms.
+func isDirective(text string) bool {
+	if strings.HasPrefix(text, "/*") {
+		// A cgo preamble is the comment immediately above `import "C"`. It is C
+		// source code, not documentation.
+		return strings.Contains(text, "#include") || strings.Contains(text, "#cgo")
+	}
+	body, ok := strings.CutPrefix(text, "//")
+	if !ok || body == "" || body[0] == ' ' || body[0] == '\t' {
+		return false // "// prose" — a space means it is not a directive
+	}
+	if strings.HasPrefix(body, "line ") || strings.HasPrefix(body, "export ") {
+		return true
+	}
+	// tool:directive — a colon-separated prefix with no spaces before it.
+	colon := strings.IndexByte(body, ':')
+	if colon <= 0 {
+		return false
+	}
+	return !strings.ContainsAny(body[:colon], " \t")
+}
+
+// keepsDirective reports whether a comment group contains any directive.
+func keepsDirective(g *ast.CommentGroup) bool {
+	if g == nil {
+		return false
+	}
+	for _, c := range g.List {
+		if isDirective(c.Text) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasDirectives reports whether the file contains any compiler directive.
+//
+// A file with one is refused outright rather than partially compressed. Keeping
+// directives while dropping their surrounding doc comments is possible, but
+// go/printer reattaches floating comments by source position, and getting that
+// subtly wrong on a build constraint is worse than saving nothing.
+func hasDirectives(file *ast.File) bool {
+	for _, g := range file.Comments {
+		if keepsDirective(g) {
+			return true
+		}
+	}
+	return false
 }
 
 // stripComments detaches every comment from the AST. Both the file's comment

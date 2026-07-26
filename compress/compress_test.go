@@ -523,3 +523,77 @@ func TestStage_NameAndMetrics(t *testing.T) {
 		t.Errorf("counter = %d, want 2 (snapshot: %v)", got, rec.Snapshot())
 	}
 }
+
+// QA-REPORT-2 M5: some Go comments are compiler directives. Stripping them
+// produces a file that still parses and still declares everything — so the
+// round-trip check passes — while compiling differently, embedding different
+// assets, or not compiling at all. The check could not catch this class, so
+// directive-bearing files are refused outright.
+func TestCodeCompressor_RefusesFilesWithCompilerDirectives(t *testing.T) {
+	cases := map[string]string{
+		"build constraint": "//go:build linux\n\npackage p\n\nimport \"fmt\"\n\n// prose\nfunc F() { fmt.Println(1) }\n",
+		"embed":            "package assets\n\nimport \"embed\"\n\n// prose\n//go:embed files/*\nvar files embed.FS\n\nfunc F() {}\n",
+		"generate":         "package p\n\n//go:generate stringer -type=T\n\n// prose\ntype T int\n\nfunc F() {}\n",
+		"noinline":         "package p\n\n// prose\n//go:noinline\nfunc F() {}\n\nfunc G() {}\n",
+		"cgo preamble":     "package p\n\n/*\n#include <stdio.h>\n*/\nimport \"C\"\n\n// prose\nfunc F() {}\n",
+	}
+	c := NewCodeCompressor()
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			if c.CanHandle(src) {
+				t.Error("a directive-bearing file must not be claimed")
+			}
+			got, err := c.Compress(src)
+			if err != nil {
+				t.Fatalf("Compress: %v", err)
+			}
+			if got != src {
+				t.Errorf("content was altered despite carrying a directive:\n%s", got)
+			}
+		})
+	}
+}
+
+// The refusal must be narrow: "// go:build" with a space is prose, and a
+// comment mentioning a directive is not one.
+func TestCodeCompressor_StillCompressesOrdinaryComments(t *testing.T) {
+	src := "package p\n\n// This mentions //go:build in prose and must still be removed.\n" +
+		"// So must this longer explanatory comment about the function below.\n" +
+		"func F() {}\n\n// Another doc comment.\nfunc G() {}\n"
+
+	c := NewCodeCompressor()
+	if !c.CanHandle(src) {
+		t.Fatal("ordinary commented Go should still be claimed")
+	}
+	got, err := c.Compress(src)
+	if err != nil {
+		t.Fatalf("Compress: %v", err)
+	}
+	if len(got) >= len(src) {
+		t.Errorf("no saving: %d -> %d", len(src), len(got))
+	}
+	if strings.Contains(got, "explanatory") {
+		t.Errorf("prose survived:\n%s", got)
+	}
+}
+
+func TestIsDirectiveClassification(t *testing.T) {
+	cases := map[string]bool{
+		"//go:build linux":            true,
+		"//go:embed files/*":          true,
+		"//go:generate stringer":      true,
+		"//line foo.go:1":             true,
+		"//export MyFunc":             true,
+		"// go:build linux":           false, // a space makes it prose
+		"// ordinary comment":         false,
+		"//ordinary":                  false,
+		"// see https://example.com/": false, // a colon, but spaces before it
+		"/* just a block comment */":  false,
+		"/*\n#include <stdio.h>\n*/":  true,
+	}
+	for text, want := range cases {
+		if got := isDirective(text); got != want {
+			t.Errorf("isDirective(%q) = %v, want %v", text, got, want)
+		}
+	}
+}

@@ -3,14 +3,18 @@ package agentkit_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/JMjirapat/tokipe"
+	"github.com/JMjirapat/tokipe/budget"
 	"github.com/JMjirapat/tokipe/compress"
 	"github.com/JMjirapat/tokipe/config"
+	"github.com/JMjirapat/tokipe/history"
 	"github.com/JMjirapat/tokipe/metrics"
 	"github.com/JMjirapat/tokipe/pipeline"
 	"github.com/JMjirapat/tokipe/preprocess"
@@ -74,6 +78,14 @@ func matrixCases() []matrixCase {
 		return &pipeline.Request{Query: "q", NeedsRetrieval: true}
 	}
 	okExec := func(context.Context, pipeline.ToolCall) (any, error) { return "v", nil }
+	longConversationReq := func() *pipeline.Request {
+		msgs := []pipeline.Message{{Role: "system", Content: "sys", Static: true}}
+		for i := range 30 {
+			msgs = append(msgs, pipeline.Message{
+				Role: "user", Content: fmt.Sprintf("turn %d %s", i, strings.Repeat("x", 60))})
+		}
+		return &pipeline.Request{Query: "q", Messages: msgs, TurnType: pipeline.TurnNewQuestion}
+	}
 
 	return []matrixCase{
 		{point: "preprocess.Rule.CanHandle", opts: []config.Option{config.WithPreprocess(panicRule{onCanHandle: true})}, req: plainReq},
@@ -92,6 +104,18 @@ func matrixCases() []matrixCase {
 		{point: "stores.VectorStore.Search", opts: []config.Option{config.WithRAG(okEmbedder{}, panicStore{}, 3)}, req: retrievalReq},
 
 		{point: "pipeline.Router.Route", opts: []config.Option{config.WithRouter(panicRouter{})}, req: plainReq},
+
+		// Phase 6. The counter is called again during trimming, long after the
+		// initial guarded count, so the panic must be triggered late to reach
+		// the path that was unguarded.
+		{point: "budget.TokenCounter.CountTokens", opts: []config.Option{
+			config.WithHistoryBudget(budget.Policy{NewQuestionBudget: 10},
+				newLatePanicCounter(longConversationReq())),
+		}, req: longConversationReq},
+		{point: "history.Summarizer.Summarize", opts: []config.Option{
+			config.WithHistoryBudget(budget.Policy{NewQuestionBudget: 40}, nil,
+				history.WithSummarizer(panicSummarizer{})),
+		}, req: longConversationReq},
 
 		// Metrics are opt-in diagnostics. They must never be able to discard a
 		// result the pipeline already produced.
@@ -293,7 +317,13 @@ func TestMatrixCoversEveryExtensionMethod(t *testing.T) {
 		"metrics.DegradationReporter": reflect.TypeOf((*metrics.DegradationReporter)(nil)).Elem(),
 		"metrics.Histogram":           reflect.TypeOf((*metrics.Histogram)(nil)).Elem(),
 		"metrics.Gauge":               reflect.TypeOf((*metrics.Gauge)(nil)).Elem(),
-		"metrics.Counter":             reflect.TypeOf((*metrics.Counter)(nil)).Elem(),
+
+		// Phase 6 extension points. Their absence here is why a TokenCounter
+		// panic escaping Pipeline.Run passed the completeness guard: the guard
+		// only checks interfaces it has been told about, and nobody told it.
+		"budget.TokenCounter": reflect.TypeOf((*budget.TokenCounter)(nil)).Elem(),
+		"history.Summarizer":  reflect.TypeOf((*history.Summarizer)(nil)).Elem(),
+		"metrics.Counter":     reflect.TypeOf((*metrics.Counter)(nil)).Elem(),
 	}
 
 	// Methods agentkit never calls on the request path, with the reason.
@@ -482,4 +512,47 @@ func (g sinkGauge) Set(float64, map[string]string) {
 	if g.panics {
 		panic("Set panic")
 	}
+}
+
+// latePanicCounter survives exactly the initial, guarded CountRequest and
+// panics on the first call after it — which is the trim loop, the path that
+// used to escape Pipeline.Run.
+//
+// The grace period is measured, not guessed. An earlier version used a fixed
+// allowance of 64 calls; trimming finished inside it, so the case passed even
+// with the fix reverted. A regression test that cannot fail is worse than none,
+// because it reports safety it never checked.
+type latePanicCounter struct {
+	survive int64
+	seen    atomic.Int64
+}
+
+func (c *latePanicCounter) CountTokens(_ context.Context, s string) (int, error) {
+	if c.seen.Add(1) <= c.survive {
+		return len(s), nil
+	}
+	panic("token counter panic")
+}
+
+// countingCounter measures how many CountTokens calls the guarded initial
+// CountRequest makes for a given request.
+type countingCounter struct{ n atomic.Int64 }
+
+func (c *countingCounter) CountTokens(_ context.Context, s string) (int, error) {
+	c.n.Add(1)
+	return len(s), nil
+}
+
+// newLatePanicCounter returns a counter that panics on the first call made
+// after the initial count for req.
+func newLatePanicCounter(req *pipeline.Request) *latePanicCounter {
+	probe := &countingCounter{}
+	_, _ = budget.CountRequest(context.Background(), probe, req)
+	return &latePanicCounter{survive: probe.n.Load()}
+}
+
+type panicSummarizer struct{}
+
+func (panicSummarizer) Summarize(context.Context, []pipeline.Message) (pipeline.Message, error) {
+	panic("summarizer panic")
 }

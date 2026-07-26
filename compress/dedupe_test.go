@@ -191,3 +191,46 @@ func TestImplementsPipelineStage(t *testing.T) {
 		t.Errorf("Name = %q", s.Name())
 	}
 }
+
+// QA-REPORT-2 M6: two long, otherwise identical passages differing only in a
+// decisive value scored ~0.82 and the second was discarded, so the model
+// answered from whichever ranked first. A threshold alone cannot see this: a
+// decisive value is a few tokens in a long passage.
+func TestKeepsChunksThatDisagreeOnAValue(t *testing.T) {
+	base := "The production ingress timeout policy applies to all upstream services in the cluster " +
+		"and is enforced by the gateway for every request path without exception. The configured value is "
+
+	cases := map[string][2]string{
+		"different duration": {base + "30 seconds.", base + "60 seconds."},
+		"different version":  {base + "applied from v2 onward.", base + "applied from v3 onward."},
+		"different limit":    {base + "capped at 1024 requests.", base + "capped at 4096 requests."},
+	}
+	for name, pair := range cases {
+		t.Run(name, func(t *testing.T) {
+			out := run(t, compress.NewDedupeStage(), chunks(pair[0], pair[1]))
+			if len(out.RetrievedChunks) != 2 {
+				t.Errorf("kept %d, want both — they disagree on a value", len(out.RetrievedChunks))
+			}
+		})
+	}
+}
+
+// The fact guard must not stop genuine duplicates being dropped: identical
+// values on both sides is agreement, not disagreement.
+func TestIdenticalChunksWithNumbersAreStillDeduped(t *testing.T) {
+	withNumbers := "The timeout is 30 seconds and the retry budget is 3 attempts across all 12 " +
+		"upstream services configured in the production cluster today without exception."
+	out := run(t, compress.NewDedupeStage(), chunks(withNumbers, withNumbers, withNumbers))
+	if len(out.RetrievedChunks) != 1 {
+		t.Errorf("kept %d, want 1 — these are identical", len(out.RetrievedChunks))
+	}
+}
+
+// The default threshold is conservative by design: discarding needed evidence
+// is worse than sending a duplicate.
+func TestDefaultThresholdIsConservative(t *testing.T) {
+	if compress.DefaultDedupeThreshold < 0.9 {
+		t.Errorf("DefaultDedupeThreshold = %v; below 0.9 it discards real differences",
+			compress.DefaultDedupeThreshold)
+	}
+}

@@ -54,9 +54,15 @@ const (
 // worse failure than sending one it did not.
 const (
 	// DefaultDedupeThreshold is the Jaccard similarity above which two chunks
-	// are treated as the same. 0.8 catches reformatted and lightly-edited
-	// copies while leaving genuinely different passages alone.
-	DefaultDedupeThreshold = 0.8
+	// are treated as the same.
+	//
+	// Raised from 0.8 to 0.95 after 0.8 was shown to discard a real difference:
+	// two long, otherwise identical policy documents ending in "30 seconds" and
+	// "60 seconds" scored ~0.82, so the second was dropped and the model
+	// answered from whichever ranked first. The stated principle — discarding
+	// needed evidence is worse than sending a duplicate — makes near-exact the
+	// only safe default. Lower it deliberately if you want the savings.
+	DefaultDedupeThreshold = 0.95
 
 	// DefaultShingleSize is the number of words per shingle.
 	DefaultShingleSize = 4
@@ -127,6 +133,7 @@ func (d *DedupeStage) Process(ctx context.Context, req *pipeline.Request) (*pipe
 
 	kept := make([]pipeline.Chunk, 0, len(req.RetrievedChunks))
 	keptSets := make([]map[string]struct{}, 0, len(req.RetrievedChunks))
+	keptFacts := make([]map[string]struct{}, 0, len(req.RetrievedChunks))
 	dropped := 0
 
 	for _, chunk := range req.RetrievedChunks {
@@ -136,18 +143,29 @@ func (d *DedupeStage) Process(ctx context.Context, req *pipeline.Request) (*pipe
 			// judged is not a chunk that can be discarded.
 			kept = append(kept, chunk)
 			keptSets = append(keptSets, nil)
+			keptFacts = append(keptFacts, nil)
 			continue
 		}
 
+		facts := factTokens(chunk.Content)
 		duplicate := false
-		for _, existing := range keptSets {
+		for i, existing := range keptSets {
 			if existing == nil {
 				continue
 			}
-			if jaccard(set, existing) >= d.threshold {
-				duplicate = true
-				break
+			if jaccard(set, existing) < d.threshold {
+				continue
 			}
+			// Similar enough by wording — but if the two disagree on any
+			// number, version or identifier, they are not the same fact. A
+			// threshold alone cannot see this: a decisive value is a few
+			// tokens in a long passage, which barely moves the score while
+			// completely changing what the chunk says.
+			if !sameFacts(facts, keptFacts[i]) {
+				continue
+			}
+			duplicate = true
+			break
 		}
 		if duplicate {
 			dropped++
@@ -156,6 +174,7 @@ func (d *DedupeStage) Process(ctx context.Context, req *pipeline.Request) (*pipe
 		}
 		kept = append(kept, chunk)
 		keptSets = append(keptSets, set)
+		keptFacts = append(keptFacts, facts)
 	}
 
 	if dropped == 0 {
@@ -197,6 +216,38 @@ func normalizeWords(content string) []string {
 		}
 	}
 	return out
+}
+
+// factTokens extracts the tokens most likely to carry a decisive value:
+// anything containing a digit. Numbers, versions, durations, limits, dates and
+// identifiers like "v2" or "HTTP/2" all land here, and they are exactly the
+// tokens where a one-word difference changes the answer.
+//
+// Deliberately narrow. Broadening it to all rare words would make dedupe fire
+// almost never, which trades one failure for another.
+func factTokens(content string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, w := range normalizeWords(content) {
+		if strings.ContainsFunc(w, unicode.IsDigit) {
+			out[w] = struct{}{}
+		}
+	}
+	return out
+}
+
+// sameFacts reports whether two chunks agree on every value-bearing token.
+// Disagreement anywhere means they are not duplicates, however similar the
+// surrounding prose.
+func sameFacts(a, b map[string]struct{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if _, ok := b[k]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // jaccard is |A∩B| / |A∪B|.

@@ -37,8 +37,11 @@ jobs:
 
       - name: core module has no third-party dependencies
         run: |
+          # The module path appears here. If it is ever renamed again, this
+          # line must move with it — it silently flags every internal package
+          # as third-party otherwise, which is how this broke once already.
           deps=$(go list -deps ./... \
-            | grep -E '^[^/]+\.[^/]+/' | grep -v '^agentkit' || true)
+            | grep -E '^[^/]+\.[^/]+/' | grep -v '^github.com/JMjirapat/tokipe' || true)
           if [ -n "$deps" ]; then
             echo "unexpected third-party dependencies in the core module:"
             echo "$deps"

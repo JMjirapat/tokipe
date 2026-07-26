@@ -141,11 +141,18 @@ func CountRequest(ctx context.Context, counter TokenCounter, req *pipeline.Reque
 		}
 	}
 
-	n, err := count(req.Query)
-	if err != nil {
-		return RequestCost{}, err
+	// Query is charged only when it is NOT already present as the newest
+	// message. Both provider adapters send the current turn exactly once in
+	// that shape, so counting it twice over-reports the request the provider
+	// will actually receive — and over-reporting causes history to be dropped
+	// that the real request had room for.
+	if !queryDuplicatesNewest(req, newest) {
+		n, err := count(req.Query)
+		if err != nil {
+			return RequestCost{}, err
+		}
+		cost.Query = n
 	}
-	cost.Query = n
 
 	for _, ch := range req.RetrievedChunks {
 		n, err := count(ch.Content + ch.SourceURL)
@@ -157,6 +164,13 @@ func CountRequest(ctx context.Context, counter TokenCounter, req *pipeline.Reque
 
 	cost.Total = cost.Static + cost.History + cost.Newest + cost.Query + cost.Chunks
 	return cost, nil
+}
+
+// queryDuplicatesNewest reports whether Request.Query restates the newest
+// message verbatim — the shape both provider adapters collapse to a single
+// wire message.
+func queryDuplicatesNewest(req *pipeline.Request, newest int) bool {
+	return req.Query != "" && newest >= 0 && req.Messages[newest].Content == req.Query
 }
 
 // IsStatic reports whether a message belongs to the immutable prefix: either

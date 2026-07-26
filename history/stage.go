@@ -246,6 +246,25 @@ func (s *Stage) count(ctx context.Context, req *pipeline.Request) (budget.Reques
 	})
 }
 
+// countOne is count for a single string, and exists because guarding only the
+// initial CountRequest was not enough: the trim loop, the summary sizing and
+// the chunk pass each call the counter again, and every one of those was an
+// unguarded path out of Pipeline.Run.
+//
+// It reports (0, false) on any failure, and every caller treats that as
+// "stop trimming" rather than "this costs nothing" — assuming zero would make
+// the request look like it fit and silently under-trim.
+func (s *Stage) countOne(ctx context.Context, text string) (int, bool) {
+	n, err := safe.Value(func() (int, error) { return s.counter.CountTokens(ctx, text) })
+	if err != nil {
+		metrics.Degrade(s.rec, metrics.Degradation{
+			Stage: s.Name(), Reason: "counter_failed_mid_trim", Err: err,
+		})
+		return 0, false
+	}
+	return n, true
+}
+
 // trim drops middle messages until the request fits, then trims retrieved
 // chunks if messages alone were not enough.
 //
@@ -270,9 +289,6 @@ func (s *Stage) trim(
 	// Indices of messages that may be dropped: non-static, not the newest, and
 	// outside the head/tail retention window.
 	candidates := s.candidates(messages)
-	if len(candidates) == 0 {
-		return req, 0
-	}
 
 	// Drop oldest-first *within the middle*, so the surviving head keeps the
 	// task framing and the prefix stays stable for as long as possible.
@@ -287,15 +303,24 @@ func (s *Stage) trim(
 		if remaining <= target {
 			break
 		}
-		n, err := s.counter.CountTokens(ctx, messages[idx].Content)
-		if err != nil {
+		n, ok := s.countOne(ctx, messages[idx].Content)
+		if !ok {
 			break // counting stopped working; stop trimming
 		}
 		keep[idx] = false
 		droppedMsgs = append(droppedMsgs, messages[idx])
 		remaining -= n
 	}
+	// No droppable message is NOT the end of the road: retrieved chunks are
+	// still legal candidates, and a one-turn RAG request over budget has
+	// nothing else to give. Returning here meant budget enforcement silently
+	// failed on the most ordinary RAG shape there is.
 	if len(droppedMsgs) == 0 {
+		if remaining > target && len(req.RetrievedChunks) > 0 {
+			before := len(req.RetrievedChunks)
+			req.RetrievedChunks, _ = s.trimChunks(ctx, req.RetrievedChunks, remaining, target)
+			return req, before - len(req.RetrievedChunks)
+		}
 		return req, 0
 	}
 
@@ -337,10 +362,18 @@ func (s *Stage) summary(
 		return s.summarize.Summarize(ctx, dropped)
 	})
 	if err != nil || strings.TrimSpace(msg.Content) == "" {
+		metrics.Degrade(s.rec, metrics.Degradation{
+			Stage: s.Name(), Reason: "summary_unusable", Err: err,
+			Detail: "summariser failed or returned nothing; dropping instead",
+		})
 		return pipeline.Message{}, false
 	}
-	n, err := s.counter.CountTokens(ctx, msg.Content)
-	if err != nil || remaining+n > limit {
+	n, ok := s.countOne(ctx, msg.Content)
+	if !ok || remaining+n > limit {
+		metrics.Degrade(s.rec, metrics.Degradation{
+			Stage: s.Name(), Reason: "summary_too_large",
+			Detail: "the summary did not fit the reserved headroom; dropping instead",
+		})
 		return pipeline.Message{}, false
 	}
 	if msg.Static {
@@ -374,8 +407,8 @@ func (s *Stage) trimChunks(
 		if remaining <= limit || len(drop) == len(chunks)-1 {
 			break
 		}
-		n, err := s.counter.CountTokens(ctx, chunks[idx].Content+chunks[idx].SourceURL)
-		if err != nil {
+		n, ok := s.countOne(ctx, chunks[idx].Content+chunks[idx].SourceURL)
+		if !ok {
 			break
 		}
 		drop[idx] = true

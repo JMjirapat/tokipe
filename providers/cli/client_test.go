@@ -90,6 +90,13 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "then it broke")
 		os.Exit(4)
 
+	case "slow_stream":
+		// One line, then a long pause. A consumer that abandons after the first
+		// delta must not wait for this.
+		fmt.Println("first line")
+		time.Sleep(10 * time.Second)
+		fmt.Println("second line")
+
 	case "hang":
 		time.Sleep(30 * time.Second)
 	}
@@ -623,4 +630,39 @@ func TestStreamPresetsAreWired(t *testing.T) {
 
 func TestClientSatisfiesStreamingClient(t *testing.T) {
 	var _ pipeline.StreamingClient = mustClient(t, cli.Config{Command: "go"})
+}
+
+// QA-REPORT-2 M3: the deferred cleanup reaped before cancelling, and reaping
+// waits for the child. A consumer that broke out of the range loop therefore
+// blocked until the CLI exited on its own or the timeout fired — holding a
+// request goroutine and a subprocess long after the client had disconnected.
+func TestAbandoningAStreamDoesNotWaitForTheChild(t *testing.T) {
+	cfg := helperConfig(t, "slow_stream")
+	cfg.StreamParse = cli.LineStreamParser()
+	cfg.Timeout = 30 * time.Second // long, so a regression blocks rather than times out
+
+	c := mustClient(t, cfg)
+	seq, err := c.SendStream(context.Background(), &pipeline.Request{Query: "q"})
+	if err != nil {
+		t.Fatalf("SendStream: %v", err)
+	}
+
+	done := make(chan time.Duration, 1)
+	go func() {
+		start := time.Now()
+		for range seq {
+			break // walk away after the first delta
+		}
+		done <- time.Since(start)
+	}()
+
+	select {
+	case took := <-done:
+		// The child sleeps 10s. Anything near that means we waited for it.
+		if took > 3*time.Second {
+			t.Errorf("abandoning blocked for %v waiting on the child", took)
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("abandoning a stream blocked; the subprocess is not being cancelled first")
+	}
 }

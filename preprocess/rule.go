@@ -131,7 +131,18 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 		// CanHandle and Handle are caller-supplied. A panic in either is a
 		// failure like any other and must degrade to "did not match", not
 		// take down the turn (spec §2.5.1).
-		if !safe.Bool(func() bool { return r.CanHandle(req) }) {
+		canHandle, cErr := safe.Value(func() (bool, error) { return r.CanHandle(req), nil })
+		if cErr != nil {
+			// A rule whose predicate panics is broken, not merely uninterested.
+			metrics.Degrade(s.metrics, metrics.Degradation{
+				Stage:  s.Name(),
+				Reason: "rule_canhandle_panicked",
+				Err:    cErr,
+				Detail: safe.Name(r.Name, UnnamedRule),
+			})
+			continue
+		}
+		if !canHandle {
 			continue
 		}
 		resp, err := safe.Value(func() (*pipeline.Response, error) { return r.Handle(req) })

@@ -388,12 +388,12 @@ CGO_ENABLED=0 go build ./...
 
 A healthy checkout reports:
 
-<!-- inventory:test-funcs=377 -->
+<!-- inventory:test-funcs=390 -->
 <!-- inventory:packages=29 -->
 
 | Quantity | Value | Command |
 |---|---|---|
-| Test/Example functions | **377** | `grep -rhoE '^func (Test\|Example)[A-Za-z0-9_]*' --include='*_test.go' . \| wc -l` |
+| Test/Example functions | **390** | `grep -rhoE '^func (Test\|Example)[A-Za-z0-9_]*' --include='*_test.go' . \| wc -l` |
 | Packages in the root module | **29** | `go list ./... \| wc -l` |
 | Failures | **0** | `go test -race -count=1 ./...` |
 

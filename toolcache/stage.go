@@ -93,10 +93,19 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 			// Unhashable args: execute without caching rather than skipping.
 			// Still behind the recover boundary — this path calls the same
 			// caller-supplied Executor.
-			v, err := safe.Value(func() (any, error) { return s.exec(ctx, call) })
-			if err == nil {
-				results[call.Name] = v
+			v, execErr := safe.Value(func() (any, error) { return s.exec(ctx, call) })
+			if execErr != nil {
+				// Previously silent: an unhashable key already costs the cache,
+				// and a failure here costs the result too.
+				metrics.Degrade(s.rec, metrics.Degradation{
+					Stage:  s.Name(),
+					Reason: "uncacheable_tool_failed",
+					Err:    execErr,
+					Detail: call.Name,
+				})
+				continue
 			}
+			results[call.Name] = v
 			continue
 		}
 
@@ -166,9 +175,14 @@ func (s *Stage) resolve(ctx context.Context, key string, call pipeline.ToolCall)
 // get consults the cache. Any failure — an error, a miss, or a panic — is
 // reported identically as "not found", so the caller proceeds to execute.
 func (s *Stage) get(ctx context.Context, call pipeline.ToolCall) (value any, hit bool) {
+	var backendErr error
 	err := safe.Do(func() error {
 		got, ok, err := s.cache.Get(ctx, call.Name, call.Args)
-		if err != nil || !ok {
+		if err != nil {
+			backendErr = err
+			return nil
+		}
+		if !ok {
 			return nil
 		}
 		value, hit = got.Value, true
@@ -182,6 +196,15 @@ func (s *Stage) get(ctx context.Context, call pipeline.ToolCall) (value any, hit
 			Stage: s.Name(), Reason: "cache_get_panicked", Err: err, Detail: call.Name,
 		})
 		return nil, false
+	}
+	// An ordinary backend error is a miss for control flow, but it is NOT the
+	// same event as a miss and must not look like one. A dead cache backend
+	// degrading every request was the motivating example for Phase 7, and it
+	// was the one case still reported as an ordinary miss.
+	if backendErr != nil {
+		metrics.Degrade(s.rec, metrics.Degradation{
+			Stage: s.Name(), Reason: "cache_get_failed", Err: backendErr, Detail: call.Name,
+		})
 	}
 	return value, hit
 }
