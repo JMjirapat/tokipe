@@ -2,10 +2,45 @@
 
 **Date:** 2026-07-26
 **Scope:** the complete BRD/tech-spec in [spec.md](spec.md), Phases 0–4
-**Status:** QA rounds 1-4 complete; all findings resolved, awaiting re-verification
+**Status:** QA rounds 1-5 complete; all findings resolved, awaiting re-verification
 **Not yet:** tagged, pushed, or run against a real Anthropic endpoint
 
 ## 0. QA history
+
+### Round 5 — revision `044ccda`
+
+Every behavioural finding from rounds 1-4 passes. What remained was the test
+inventory in §2 having gone stale again — the same Blocker as round 1, for the
+same reason, two rounds after "fixing" it by typing a fresh number.
+
+| # | Finding | Resolution |
+|---|---|---|
+| R5-1 | Delivery §2 test inventory stale (297/222 claimed, 306/227 actual) | Fixed by making it machine-checked, not by retyping it. |
+| R5-2 (Note) | Matrix matcher fell back to a bare method-name substring | Tightened to exact canonical identifiers. |
+
+**R5-1 is the same mistake twice, so the number was not the problem.** A
+hand-maintained count cannot survive rounds of new regression tests; every fix
+that adds a test invalidates it. `inventory_test.go` now parses machine-readable
+markers out of §2 and fails the build on drift. It proved itself immediately:
+adding the guard added a test function, and the guard caught its own arrival
+(227 → 228). The run-event total is deliberately left unpinned — checking it
+would mean running the suite from inside the suite — so §2 publishes the
+command instead of a number.
+
+**R5-2 was a Note, and it was right.** The matcher accepted any point
+containing the method name, so a point mentioning `Name` satisfied
+`Stage.Name`, `ModelClient.Name` and `Rule.Name` alike; deleting the
+`pipeline.Stage.Name` case would still have passed. It now matches exact
+`pkg.Interface.Method` identifiers, and separately asserts that every point
+*is* a known method so a typo fails loudly rather than silently covering
+nothing. Tightening it immediately exposed a malformed point name of my own
+(`"metrics.Recorder returning a nil Counter"`), and a negative test confirms
+that removing the `Stage.Name` case now fails where it previously passed.
+
+The pattern across five rounds: rounds 1-4 were behavioural, and each sweep
+found more instances than were reported. Rounds 4 and 5 were about claims —
+the matrix's completeness claim, then §2's inventory claim — and both were
+false. Every claim in this document that can be machine-checked now is.
 
 ### Round 4 — revision `e4db7c7`
 
@@ -171,19 +206,28 @@ Reproduce all of this from a clean checkout:
 go build ./... && go vet ./... && go test -race ./...
 ```
 
-Test counts are quoted with the command that produces them, because "237
-tests" turned out not to be reproducible with any plain `go` invocation — it
-came from a wrapper's summary line. Counting method, not just the number:
+The test inventory below is **machine-checked**. It went stale twice — QA
+rounds 1 and 5, both Blockers — because a hand-maintained number cannot stay
+true across rounds of new regression tests. `inventory_test.go` now parses the
+markers in this section and fails the build when they drift, so this table
+cannot silently rot again.
 
-```bash
-go test -race -json -count=1 ./... | grep -c '"Action":"run"'   # 297, incl. subtests
-grep -rhoE '^func (Test|Example)[A-Za-z0-9_]*' --include='*_test.go' . | wc -l  # 222 funcs
-go list ./... | wc -l                                            # 25 packages
-```
+<!-- inventory:test-funcs=228 -->
+<!-- inventory:packages=25 -->
+
+| Quantity | Value | Command |
+|---|---|---|
+| Test/Example functions | **228** | `grep -rhoE '^func (Test\|Example)[A-Za-z0-9_]*' --include='*_test.go' . \| wc -l` |
+| Packages in the root module | **25** | `go list ./... \| wc -l` |
+| Failures | **0** | `go test -race -count=1 ./...` |
+
+The run-event total (subtests included) is deliberately not pinned here:
+checking it would mean running the whole suite from inside the suite. Get it
+with `go test -race -json -count=1 ./... \| grep -c '"Action":"run"'`.
 
 | Claim | Evidence | Result |
 |---|---|---|
-| Everything builds and passes under the race detector | `go test -race ./...` | 297 run events / 222 test funcs, 25 packages, 0 failures |
+| Everything builds and passes under the race detector | `go test -race ./...` | 0 failures across 25 packages; inventory above |
 | No CGo required | `CGO_ENABLED=0 go build ./...` | clean |
 | Core has zero third-party dependencies | `go list -deps ./...` filtered, enforced in CI | none |
 | ≥30% input-token reduction | `go run ./benchmarks` | **57.1%** |
@@ -242,9 +286,8 @@ because the owner has no API credit.
 
 ## 5. Handover checklist for the next phase
 
-- [x] Independent verification and QA rounds 1-4 — see [QA-REPORT.md](QA-REPORT.md)
-- [ ] QA round 5: re-verify the round 4 fix against the GO criteria in
-      QA-REPORT.md §8
+- [x] Independent verification and QA rounds 1-5 — see [QA-REPORT.md](QA-REPORT.md)
+- [ ] QA round 6: re-verify against the GO criteria in QA-REPORT.md §9
 - [ ] Decide the final module path (`agentkit` → `github.com/<org>/agentkit`)
 - [ ] Run the Anthropic prompt-caching test once credit exists
 - [ ] Set a git remote and push

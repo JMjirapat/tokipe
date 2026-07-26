@@ -99,7 +99,7 @@ func matrixCases() []matrixCase {
 			config.WithMetrics(panicRecorder{}),
 			config.WithPreprocess(okRule{}),
 		}, req: plainReq},
-		{point: "metrics.Recorder returning a nil Counter", opts: []config.Option{
+		{point: "metrics.Recorder.Counter (returning nil)", opts: []config.Option{
 			config.WithMetrics(nilCounterRecorder{}),
 			config.WithPreprocess(okRule{}),
 		}, req: plainReq},
@@ -287,17 +287,23 @@ func TestMatrixCoversEveryExtensionMethod(t *testing.T) {
 		"pipeline.ModelClient.Send": "the model call itself, not an optimization",
 	}
 
-	var points []string
+	// Matching is on the exact canonical identifier "pkg.Interface.Method".
+	// A bare method-name substring was too loose: any point containing "Name"
+	// satisfied every interface's Name method, so removing the
+	// pipeline.Stage.Name case would still have passed. Reported as a Note in
+	// QA round 5 and tightened here — an enforcement test that can be
+	// satisfied by accident enforces nothing.
+	//
+	// The cost is that every point string must start with its canonical
+	// identifier. That is checked below, so a typo fails loudly instead of
+	// silently weakening coverage.
+	covered := map[string]bool{}
 	for _, tc := range matrixCases() {
-		points = append(points, tc.point)
-	}
-	covered := func(iface, method string) bool {
-		for _, p := range points {
-			if strings.Contains(p, iface+"."+method) || strings.Contains(p, method) {
-				return true
-			}
+		id := tc.point
+		if i := strings.Index(id, " "); i >= 0 {
+			id = id[:i] // trim any trailing prose, e.g. "(during StageError)"
 		}
-		return false
+		covered[id] = true
 	}
 
 	for name, typ := range interfaces {
@@ -307,15 +313,29 @@ func TestMatrixCoversEveryExtensionMethod(t *testing.T) {
 			if _, ok := exempt[full]; ok {
 				continue
 			}
-			if !covered(name, method) {
+			if !covered[full] {
 				t.Errorf("%s has no matrix case; add one or exempt it with a reason", full)
 			}
 		}
 	}
 
-	// toolcache.Executor is a func type rather than an interface, so
-	// reflection over interfaces cannot reach it. Assert it explicitly.
-	if !covered("toolcache", "Executor") {
+	// toolcache.Executor is a func type, not an interface, so reflection over
+	// interfaces cannot reach it. Assert it by exact identifier too.
+	if !covered["toolcache.Executor"] {
 		t.Error("toolcache.Executor has no matrix case")
+	}
+
+	// Every point must be a canonical identifier that something recognises,
+	// so a typo cannot quietly stop covering anything.
+	known := map[string]bool{"toolcache.Executor": true}
+	for name, typ := range interfaces {
+		for i := range typ.NumMethod() {
+			known[name+"."+typ.Method(i).Name] = true
+		}
+	}
+	for id := range covered {
+		if !known[id] {
+			t.Errorf("matrix point %q is not a known extension method; fix the name or the list", id)
+		}
 	}
 }

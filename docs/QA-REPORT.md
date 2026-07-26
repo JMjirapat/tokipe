@@ -9,36 +9,110 @@
 
 **Round 4 revision:** `e4db7c7`
 
+**Round 5 revision:** `044ccda`
+
 **Source of truth:** [spec.md](spec.md)  
 **Delivery claim:** [DELIVERY-1.md](DELIVERY-1.md)  
 **QA procedure:** [QA-BRIEF.md](QA-BRIEF.md)  
-**Current result:** **NO-GO for `v1.0.0` after QA round 4**
+**Current result:** **NO-GO for `v1.0.0` after QA round 5**
 
 ## 1. Executive summary
 
-All findings from QA rounds 1-3 now pass at their reported inputs. Revision
-`e4db7c7` builds successfully, passes the race detector, satisfies the stated
-coverage threshold, and reproduces the documented 57.1% synthetic benchmark
-reduction.
+All behavioural findings from QA rounds 1-4 now pass at their reported inputs.
+Revision `044ccda` builds successfully, passes the race detector, satisfies
+the stated coverage threshold, and reproduces the documented 57.1% synthetic
+benchmark reduction.
 
-Round 4 tested the new extension matrix's claim that it covers every method
-agentkit calls on caller-supplied code. It found one omitted extension:
-`metrics.Recorder`/`metrics.Counter`.
+Round 5 found that the test inventory in Delivery §2 was not updated after all
+new regression tests were added. The exact documented commands produce
+different numbers from the claimed result.
 
 | Severity | Count |
 |---|---:|
 | Blocker | 1 |
 | Major | 0 |
 | Minor | 0 |
+| Note | 1 |
 
-The release remains NO-GO because a panic from an opt-in metrics backend still
-escapes `Pipeline.Run` and discards an otherwise successful result. This makes
-metrics a hard runtime dependency when configured, contradicting both the
-fail-open guarantee and the metrics contract.
+No behavioural release blocker remains in the areas that can be tested without
+external credentials. The current NO-GO is the QA brief's explicit rule that
+a false evidence claim in `DELIVERY-1.md` §2 is a Blocker.
 
 No production source code was changed during this review.
 
-## 2. QA round 4 finding
+## 2. QA round 5 findings
+
+### [Blocker] Delivery §2 test inventory is stale
+
+**File:** `docs/DELIVERY-1.md:174-186`
+
+**Claim**
+
+The documented commands produce:
+
+```text
+297 run events
+222 test/example functions
+25 packages
+```
+
+**Reality**
+
+On revision `044ccda`, the same commands produce:
+
+```text
+306 run events
+227 test/example functions
+25 packages
+```
+
+**Reproduction**
+
+```bash
+go test -race -json -count=1 ./... | grep -c '"Action":"run"'
+grep -rhoE '^func (Test|Example)[A-Za-z0-9_]*' --include='*_test.go' . | wc -l
+go list ./... | wc -l
+```
+
+**Impact**
+
+All tests pass; this is not a product regression. However, Delivery §2 is the
+release evidence record, and `QA-BRIEF.md` explicitly classifies a false claim
+there as a Blocker.
+
+**Required before GO**
+
+Update the inventory to the values produced by the documented commands after
+the final test files are present. Re-run once with `-count=1` immediately
+before sign-off.
+
+---
+
+### [Note] Extension-matrix matching is weaker for duplicate method names
+
+**File:** `extension_matrix_test.go:291-296`
+
+`TestMatrixCoversEveryExtensionMethod` checks coverage with:
+
+```go
+strings.Contains(p, iface+"."+method) || strings.Contains(p, method)
+```
+
+The second condition means any matrix point containing `Name` can satisfy
+every interface method named `Name`, even if a particular
+`pipeline.Stage.Name`, `pipeline.ModelClient.Name`, or
+`preprocess.Rule.Name` case is removed.
+
+Every current extension method does have a real matrix case, so this is not a
+current behavioural defect. For future enforceability, prefer exact canonical
+identifiers and handle function-type exceptions explicitly rather than
+falling back to a bare method-name substring.
+
+## 3. QA round 4 finding — resolved at its original inputs
+
+All three metrics failure modes pass on revision `044ccda`: `Recorder.Counter`
+panic, `Counter.Inc` panic, and a nil counter. The finding is retained below as
+historical evidence.
 
 ### [Blocker] A panicking metrics backend breaks the turn
 
@@ -117,7 +191,7 @@ Contain panics from both `Recorder.Counter` and `Counter.Inc`, and treat a nil
 counter as no-op. Add both methods to the extension matrix so its completeness
 claim is enforceable.
 
-## 3. QA round 3 finding — resolved at its original inputs
+## 4. QA round 3 finding — resolved at its original inputs
 
 Both parts of the round 3 finding pass on revision `e4db7c7`. The finding is
 retained below as historical evidence.
@@ -190,7 +264,7 @@ Choose and document one consistent contract:
 
 Add a focused test for the chosen behaviour.
 
-## 4. QA round 2 findings — resolved at their original inputs
+## 5. QA round 2 findings — resolved at their original inputs
 
 All three round 2 inputs pass on revision `03acda9`. The findings are retained
 below as historical evidence of what was re-verified.
@@ -363,7 +437,7 @@ Determine the newest message from `Messages` independently of whether `Query`
 is populated, while continuing to avoid duplicating the current turn when both
 representations are present.
 
-## 5. QA round 1 findings — resolved at their original inputs
+## 6. QA round 1 findings — resolved at their original inputs
 
 The six findings below are retained as the historical round 1 record. Their
 exact original inputs all pass on revision `b5cdd38`; round 2 findings above
@@ -678,7 +752,7 @@ Narrow the documentation to built-in optimization dependency failures and
 document cancellation, custom-stage errors, and programming/configuration
 errors separately.
 
-## 6. Verification results
+## 7. Verification results
 
 ### Baseline
 
@@ -748,7 +822,7 @@ The reported package coverage values were reproduced:
 
 The five packages named by the specification all exceed the required 80%.
 
-## 7. Areas reviewed with no demonstrated defect
+## 8. Areas reviewed with no demonstrated defect
 
 - Cache-aligner breakpoint computation is deterministic for identical inputs.
 - The core aligner does not place a breakpoint after retrieved chunks.
@@ -768,16 +842,16 @@ The five packages named by the specification all exceed the required 80%.
 
 The known gaps in `DELIVERY-1.md` §3 were not re-reported as defects.
 
-## 8. Release decision
+## 9. Release decision
 
 **Current decision: NO-GO**
 
-The round 1-3 criteria are satisfied at their reported inputs. The decision can
-change to **GO** when:
+The behavioural criteria from rounds 1-4 are satisfied at their reported
+inputs. The decision can change to **GO** when:
 
-1. Panics from `Recorder.Counter` and `Counter.Inc` cannot escape or discard a
-   successful result.
-2. A nil `Counter` degrades to a no-op rather than panicking.
-3. Both metrics methods are represented in the extension matrix.
-4. Focused regression tests pin these behaviours.
-5. The full root and nested-module verification commands pass again.
+1. Delivery §2 reports the reproducible final test inventory.
+2. The full root and nested-module verification commands pass once more after
+   that documentation update.
+
+The extension-matrix matcher improvement is recommended but does not block the
+tag because every current method has a concrete case.
