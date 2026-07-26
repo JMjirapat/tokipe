@@ -6,6 +6,13 @@
 //	go run ./examples/cli-provider -live     # actually invokes the CLI
 //	go run ./examples/cli-provider -live -cli codex
 //
+//	# opencode takes an explicit "provider/model"; run `opencode models` to list them
+//	go run ./examples/cli-provider -live -cli opencode -model opencode-go/qwen3.6-plus
+//
+//	# two real models, one cheap and one strong, picked per request by the router
+//	go run ./examples/cli-provider -live -cli opencode \
+//	    -model opencode-go/deepseek-v4-flash -model-strong opencode-go/qwen3.7-max
+//
 // Dry run is the default on purpose: a live run spends real subscription quota
 // and takes seconds per turn. Dry run still exercises the whole pipeline — the
 // stages all execute, and only the final Send is intercepted — so it shows
@@ -45,8 +52,13 @@ import (
 func main() {
 	live := flag.Bool("live", false, "actually invoke the CLI (spends subscription quota)")
 	which := flag.String("cli", "claude", "which CLI preset to use: claude | codex | opencode")
-	model := flag.String("model", "", "model override, for the opencode preset")
+	model := flag.String("model", "", "model for the opencode preset, e.g. opencode-go/deepseek-v4-flash")
+	strong := flag.String("model-strong", "", "opencode only: a second, stronger model; enables two-tier routing")
 	flag.Parse()
+
+	if *which != "opencode" && (*model != "" || *strong != "") {
+		log.Fatalf("-model/-model-strong only apply to -cli opencode; %s picks its own model", *which)
+	}
 
 	cfg, err := preset(*which, *model)
 	if err != nil {
@@ -72,6 +84,25 @@ func main() {
 		backend = dry
 	}
 
+	// With -model-strong, the two tiers are two real models rather than the
+	// mocks examples/local-routing uses. Same HeuristicRouter, same absence of
+	// per-request routing code below — the difference is that these answer.
+	tiers := []router.Tier{{Client: backend, MaxComplexity: 1.0}}
+	if *strong != "" {
+		strongClient, err := cli.New(cli.OpenCodePreset("", *strong))
+		if err != nil {
+			log.Fatalf("cli.New(%s): %v", *strong, err)
+		}
+		var strongBackend pipeline.ModelClient = strongClient
+		if !*live {
+			strongBackend = &dryRun{inner: strongClient}
+		}
+		tiers = []router.Tier{
+			{Client: backend, MaxComplexity: 0.25},
+			{Client: strongBackend, MaxComplexity: 1.0},
+		}
+	}
+
 	rec := metrics.NewInMemory()
 	var toolExecs atomic.Int64
 
@@ -85,12 +116,10 @@ func main() {
 		}, time.Hour),
 		config.WithDefaultCompression(),
 		config.WithCacheAlignment(),
-		// One tier here, but the router is what would split traffic between,
-		// say, a local opencode model and the cloud-backed claude CLI.
-		config.WithRouter(router.NewHeuristicRouter(router.Tier{Client: backend, MaxComplexity: 1.0})),
+		config.WithRouter(router.NewHeuristicRouter(tiers...)),
 	)
 
-	fmt.Printf("backend: %s   mode: %s\n", client.Name(), modeLabel(*live))
+	fmt.Printf("backend: %s   mode: %s\n", describeBackend(*which, *model, *strong), modeLabel(*live))
 	fmt.Println(strings.Repeat("─", 66))
 
 	history := []pipeline.Message{
@@ -113,7 +142,9 @@ func main() {
 				req.Metadata[preprocess.MetaMatchedRule], time.Since(turnStart).Round(time.Microsecond))
 			fmt.Printf("   →  %s\n", resp.Content)
 		} else {
-			fmt.Printf("   ↗  sent to %s (%v)\n", client.Name(), time.Since(turnStart).Round(time.Millisecond))
+			// router.client is set by Pipeline.Run, so this reports the tier
+			// actually chosen rather than the default backend.
+			fmt.Printf("   ↗  sent to %v (%v)\n", req.Metadata["router.client"], time.Since(turnStart).Round(time.Millisecond))
 			if *live {
 				fmt.Printf("   →  %s\n", firstLine(resp.Content))
 				fmt.Printf("   usage: in=%d out=%d cache_read=%d\n",
@@ -198,6 +229,10 @@ func turns() []turnSpec {
 		{label: "same tool call — served from cache", query: "Same results below. In one line, has anything changed? Do not run anything.", toolCalls: []pipeline.ToolCall{runTests}},
 		{label: "deterministic — bad SHA", query: "validate sha notasha"},
 		{label: "real question", query: "In one line: why keep a prompt prefix stable?"},
+		// Long and code-dense, so it scores well above the cheap tier's
+		// threshold. With -model-strong this is the turn that escalates.
+		{label: "heavy — long code block", query: "In one line: what does this do?\n```go\n" +
+			strings.Repeat("func step(x int) (int, error) { return x*2 + (x&3), nil }\n", 80) + "```"},
 	}
 }
 
@@ -247,6 +282,16 @@ func (arithmeticRule) Handle(req *pipeline.Request) (*pipeline.Response, error) 
 		return nil, err
 	}
 	return &pipeline.Response{Content: fmt.Sprint(a * b), ModelUsed: "none"}, nil
+}
+
+func describeBackend(which, model, strong string) string {
+	if strong != "" {
+		return fmt.Sprintf("%s tiers [%s → %s]", which, model, strong)
+	}
+	if model != "" {
+		return which + " " + model
+	}
+	return which
 }
 
 func modeLabel(live bool) string {

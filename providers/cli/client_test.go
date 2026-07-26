@@ -387,3 +387,24 @@ func TestPresetsAreWiredToTheRightParsers(t *testing.T) {
 		t.Error("claude preset should pass the prompt via stdin")
 	}
 }
+
+// Two tiers backed by different opencode models must be distinguishable, or
+// routing decisions, logs, and metrics all collapse into one indistinct name.
+func TestOpenCodePresetNamesIncludeTheModel(t *testing.T) {
+	cheap := cli.OpenCodePreset("", "opencode-go/deepseek-v4-flash")
+	strong := cli.OpenCodePreset("", "opencode-go/qwen3.7-max")
+
+	if cheap.ClientName == strong.ClientName {
+		t.Fatalf("both tiers report %q; they must differ", cheap.ClientName)
+	}
+	if !strings.Contains(cheap.ClientName, "deepseek-v4-flash") {
+		t.Errorf("ClientName = %q, expected it to name the model", cheap.ClientName)
+	}
+	if got := cli.OpenCodePreset("", "").ClientName; got != "opencode-cli" {
+		t.Errorf("with no model, ClientName = %q, want the plain default", got)
+	}
+	// The model must also actually reach the command line, not just the name.
+	if !slices.Contains(cheap.Args, "opencode-go/deepseek-v4-flash") {
+		t.Errorf("Args %v missing the model", cheap.Args)
+	}
+}

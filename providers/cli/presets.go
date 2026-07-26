@@ -192,12 +192,19 @@ func OpenCodePreset(dir, model string) Config {
 	}
 	args = append(args, PromptPlaceholder)
 
+	// The model goes in the name so two tiers backed by different opencode
+	// models are distinguishable in routing decisions, logs, and metrics.
+	name := "opencode-cli"
+	if model != "" {
+		name = "opencode:" + model
+	}
+
 	return Config{
 		Command:    "opencode",
 		Args:       args,
 		PromptMode: PromptAsArg,
 		Parse:      PlainTextParser,
 		Dir:        dir,
-		ClientName: "opencode-cli",
+		ClientName: name,
 	}
 }

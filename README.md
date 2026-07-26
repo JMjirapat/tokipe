@@ -188,6 +188,24 @@ executes every stage and intercepts only the final `Send`, so it shows which
 turns would have reached the CLI and the exact prompt each would carry. With no
 CLI installed it prints an explanation and exits 0, which is why CI can run it.
 
+`opencode` takes an explicit `provider/model` (list them with `opencode models`),
+and passing a second one turns the example into two-tier routing over two *real*
+models rather than the mocks `examples/local-routing` uses:
+
+```bash
+go run ./examples/cli-provider -live -cli opencode \
+    -model opencode-go/deepseek-v4-flash -model-strong opencode-go/qwen3.7-max
+```
+
+```
+1. real question           ↗ opencode:opencode-go/deepseek-v4-flash (4.1s)
+2. deterministic — SHA     ✂ git_sha_validator (89µs) — no process spawned
+8. heavy — long code block ↗ opencode:opencode-go/qwen3.7-max (6.6s)
+```
+
+The escalation on turn 8 is `HeuristicRouter` reacting to length and code
+density. There is no per-request routing code in the example.
+
 A live run against `claude` shows where the savings come from with this
 backend: three of seven turns are answered by preprocess rules in microseconds
 and never start a process at all, while the turns that do run take ~6s each.
