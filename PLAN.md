@@ -102,13 +102,20 @@ returning real content, model id, and usage.
 
 ### Known gaps carried into v1.1
 
-- `compress.CodeCompressor` is a deliberate stub (`CanHandle` always false);
-  AST-aware compression is Phase 2+ per spec §2.4.4.
+- ~~`compress.CodeCompressor` is a deliberate stub.~~ **Closed in Phase 8.**
+  Real `go/ast` implementation: strips comments, optionally elides bodies, and
+  verifies its own output by re-parsing and comparing declaration counts.
 - ~~`toolcache` has no stampede protection.~~ **Closed.** `toolcache/singleflight.go`
   coalesces concurrent identical calls; the stress test now asserts exactly 2
   executions for 2 distinct calls across 480 concurrent runs (was 6).
-- `stores/pgvector` has no real-database test in CI; its integration test is
-  env-var gated.
+- ~~`stores/pgvector` has no real-database test in CI.~~ **Closed in Phase 8.**
+  A dedicated CI job runs it against a `pgvector/pgvector:pg16` service, and
+  fails if the tests skip.
+
+Phases 5–8 landed after v1.0.0; see [docs/ROADMAP.md](docs/ROADMAP.md) for what
+each added and what it taught. Still genuinely open: the Anthropic
+prompt-caching verification above, and Bedrock (dropped from Phase 8 because
+SigV4 needs the AWS SDK, which the stdlib-only core cannot take).
 
 ## Conventions every contributor (human or agent) follows
 
