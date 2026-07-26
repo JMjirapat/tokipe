@@ -14,6 +14,7 @@ package preprocess
 import (
 	"context"
 
+	"agentkit/internal/safe"
 	"agentkit/metrics"
 	"agentkit/pipeline"
 )
@@ -127,10 +128,13 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 		if ctx != nil && ctx.Err() != nil {
 			return req, nil
 		}
-		if !r.CanHandle(req) {
+		// CanHandle and Handle are caller-supplied. A panic in either is a
+		// failure like any other and must degrade to "did not match", not
+		// take down the turn (spec §2.5.1).
+		if !safe.Bool(func() bool { return r.CanHandle(req) }) {
 			continue
 		}
-		resp, err := r.Handle(req)
+		resp, err := safe.Value(func() (*pipeline.Response, error) { return r.Handle(req) })
 		if err != nil || resp == nil {
 			// Fail-open: treat as "did not match" and keep going.
 			continue

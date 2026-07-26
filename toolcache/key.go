@@ -5,9 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
+	"unicode/utf8"
 )
 
 // HashToolCall returns the SHA-256 hex digest of a canonical encoding of
@@ -26,6 +29,18 @@ import (
 // makes HashToolCall return an error; callers treat that as "uncacheable" and
 // proceed without the cache.
 func HashToolCall(toolName string, args map[string]any) (string, error) {
+	// Invalid UTF-8 must be rejected BEFORE marshalling. encoding/json replaces
+	// each invalid byte with U+FFFD, so "\xff" and "\xfe" marshal to the same
+	// JSON and would hash identically — the cache would then serve one tool
+	// call's result for a different call. Lossy encoding is worse than no
+	// encoding, so this joins the existing "uncacheable" contract above.
+	if !validUTF8(toolName) {
+		return "", fmt.Errorf("toolcache: tool name for %q is not valid UTF-8: %w", toolName, ErrUncacheable)
+	}
+	if err := checkUTF8(reflect.ValueOf(args), 0); err != nil {
+		return "", fmt.Errorf("toolcache: args for %q: %w", toolName, err)
+	}
+
 	raw, err := json.Marshal(args)
 	if err != nil {
 		return "", fmt.Errorf("toolcache: marshal args for %q: %w", toolName, err)
@@ -94,6 +109,69 @@ func canonicalize(buf *bytes.Buffer, v any) error {
 		buf.WriteByte('}')
 	default:
 		return fmt.Errorf("unsupported canonical type %T", v)
+	}
+	return nil
+}
+
+// ErrUncacheable marks arguments that cannot be hashed faithfully. Callers
+// treat it as "do not cache this call" and proceed without the cache, which is
+// the fail-open behaviour — never a reason to fail the turn.
+var ErrUncacheable = errors.New("uncacheable arguments")
+
+// maxUTF8Depth bounds the validation walk. Argument maps are JSON-shaped and
+// shallow in practice; the bound exists so a self-referential value cannot
+// spin here before encoding/json would have rejected it anyway.
+const maxUTF8Depth = 64
+
+func validUTF8(s string) bool { return utf8.ValidString(s) }
+
+// checkUTF8 walks v and reports the first string, anywhere inside it, that is
+// not valid UTF-8. It covers map keys as well as values, because a key with an
+// invalid byte collides exactly the same way.
+func checkUTF8(v reflect.Value, depth int) error {
+	if depth > maxUTF8Depth {
+		return fmt.Errorf("nested deeper than %d levels: %w", maxUTF8Depth, ErrUncacheable)
+	}
+	if !v.IsValid() {
+		return nil
+	}
+
+	switch v.Kind() {
+	case reflect.String:
+		if !validUTF8(v.String()) {
+			return fmt.Errorf("string value is not valid UTF-8: %w", ErrUncacheable)
+		}
+	case reflect.Interface, reflect.Pointer:
+		if !v.IsNil() {
+			return checkUTF8(v.Elem(), depth+1)
+		}
+	case reflect.Map:
+		for _, k := range v.MapKeys() {
+			if err := checkUTF8(k, depth+1); err != nil {
+				return err
+			}
+			if err := checkUTF8(v.MapIndex(k), depth+1); err != nil {
+				return err
+			}
+		}
+	case reflect.Slice, reflect.Array:
+		// []byte is JSON-encoded as base64, which is lossless, so it is safe.
+		if v.Kind() == reflect.Slice && v.Type().Elem().Kind() == reflect.Uint8 {
+			return nil
+		}
+		for i := range v.Len() {
+			if err := checkUTF8(v.Index(i), depth+1); err != nil {
+				return err
+			}
+		}
+	case reflect.Struct:
+		for i := range v.NumField() {
+			if v.Type().Field(i).IsExported() {
+				if err := checkUTF8(v.Field(i), depth+1); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	return nil
 }

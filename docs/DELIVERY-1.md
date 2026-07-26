@@ -2,8 +2,40 @@
 
 **Date:** 2026-07-26
 **Scope:** the complete BRD/tech-spec in [spec.md](spec.md), Phases 0–4
-**Status:** feature-complete, ready for independent verification
+**Status:** QA round 1 complete; all findings resolved, awaiting re-verification
 **Not yet:** tagged, pushed, or run against a real Anthropic endpoint
+
+## 0. QA round 1
+
+[QA-REPORT.md](QA-REPORT.md) returned **NO-GO** with 2 Blockers, 3 Majors and
+1 Minor. Every finding was independently reproduced before being fixed — none
+was taken on trust, and none was disputed: all six were real.
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | Tool executor panic escaped `Pipeline.Run` | Fixed at `internal/safe`. **Wider than reported** — see below. |
+| 2 | Test count not reproducible | Fixed: counts now quoted with the command that produces them. |
+| 3 | Non-UTF-8 args collided in `HashToolCall` | Fixed: invalid UTF-8 rejected as `ErrUncacheable` before marshalling. |
+| 4 | Anthropic breakpoint missed static content | Fixed: `cache_control` now placed against final wire order. |
+| 5 | Retrieved context could follow the newest message | Fixed: the newest turn is held back and appended exactly once. |
+| 6 | Docs overstated which errors `Run` returns | Fixed in `agentkit.go` and README. |
+
+**Finding 1 was worse than reported.** QA found the panic escape in the tool
+Executor. Probing the other caller-supplied extension points showed the same
+defect in preprocess `Rule`s, `Compressor`s, and the `Embedder`/`VectorStore`:
+one bug in four places, each of which broke the fail-open guarantee. All four
+now run behind `internal/safe`, and a panic is contained exactly like an error.
+
+Caller-supplied `pipeline.Stage`s added via `config.WithStage` are deliberately
+*not* wrapped. That is the caller's own code in the caller's own pipeline;
+swallowing its panics would hide their bugs rather than tolerate a third
+party's. This is now stated in the `agentkit` package documentation.
+
+On severity: finding 2 was filed as a Blocker under the brief's rule that a
+false claim in §2 is a Blocker. The number was imprecise rather than false —
+all tests passed and the package count was right — so Minor would have been
+fairer. It is fixed either way, and the rule that produced the call is a good
+rule; the note is recorded only so the severity distribution is not misread.
 
 ---
 
@@ -32,9 +64,19 @@ Reproduce all of this from a clean checkout:
 go build ./... && go vet ./... && go test -race ./...
 ```
 
+Test counts are quoted with the command that produces them, because "237
+tests" turned out not to be reproducible with any plain `go` invocation — it
+came from a wrapper's summary line. Counting method, not just the number:
+
+```bash
+go test -race -json -count=1 ./... | grep -c '"Action":"run"'   # 269, incl. subtests
+grep -rhoE '^func (Test|Example)[A-Za-z0-9_]*' --include='*_test.go' . | wc -l  # 211 funcs
+go list ./... | wc -l                                            # 25 packages
+```
+
 | Claim | Evidence | Result |
 |---|---|---|
-| Everything builds and passes under the race detector | `go test -race ./...` | 237 tests, 24 packages |
+| Everything builds and passes under the race detector | `go test -race ./...` | 269 run events / 211 test funcs, 25 packages, 0 failures |
 | No CGo required | `CGO_ENABLED=0 go build ./...` | clean |
 | Core has zero third-party dependencies | `go list -deps ./...` filtered, enforced in CI | none |
 | ≥30% input-token reduction | `go run ./benchmarks` | **57.1%** |
@@ -48,11 +90,11 @@ Coverage, all above the spec's ≥80% bar for the five named packages:
 
 | Package | Coverage | | Package | Coverage |
 |---|---|---|---|---|
-| `budget` | 100.0% | | `rag` | 97.6% |
+| `budget` | 100.0% | | `rag` | 97.7% |
 | `router` | 100.0% | | `cache` | 97.2% |
 | `agentkit` | 100.0% | | `providers/cli` | 94.3% |
-| `compress` | 98.9% | | `providers/anthropic` | 94.3% |
-| `preprocess` | 98.8% | | `toolcache` | 93.0% |
+| `compress` | 98.9% | | `providers/anthropic` | 95.1% |
+| `preprocess` | 98.8% | | `toolcache` | 94.7% |
 | `pipeline` | 97.0% | | `config` | 90.5% |
 | `stores/mock` | 96.7% | | `lazyload` | 88.1% |
 
@@ -92,7 +134,9 @@ because the owner has no API credit.
 
 ## 5. Handover checklist for the next phase
 
-- [ ] Independent verification and QA — see [QA-BRIEF.md](QA-BRIEF.md)
+- [x] Independent verification and QA round 1 — see [QA-REPORT.md](QA-REPORT.md)
+- [ ] QA re-verification of the six fixes against the GO criteria in
+      QA-REPORT.md §5
 - [ ] Decide the final module path (`agentkit` → `github.com/<org>/agentkit`)
 - [ ] Run the Anthropic prompt-caching test once credit exists
 - [ ] Set a git remote and push

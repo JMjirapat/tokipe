@@ -6,6 +6,7 @@ package rag
 import (
 	"context"
 
+	"agentkit/internal/safe"
 	"agentkit/metrics"
 	"agentkit/pipeline"
 	"agentkit/stores"
@@ -108,7 +109,9 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 		return req, nil
 	}
 
-	vec, err := s.embedder.Embed(ctx, req.Query)
+	// Embedder and VectorStore are caller-supplied; a panic in either must
+	// degrade to "no retrieval" like any other failure (spec §2.5.1).
+	vec, err := safe.Value(func() ([]float32, error) { return s.embedder.Embed(ctx, req.Query) })
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return req, ctxErr
@@ -117,7 +120,7 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 		return req, nil
 	}
 
-	chunks, err := s.store.Search(ctx, vec, s.topK)
+	chunks, err := safe.Value(func() ([]pipeline.Chunk, error) { return s.store.Search(ctx, vec, s.topK) })
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return req, ctxErr

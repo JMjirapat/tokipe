@@ -22,6 +22,7 @@ package compress
 import (
 	"context"
 
+	"agentkit/internal/safe"
 	"agentkit/metrics"
 	"agentkit/pipeline"
 )
@@ -83,10 +84,12 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 		}
 		original := req.RetrievedChunks[i].Content
 		for _, c := range s.compressors {
-			if c == nil || !c.CanHandle(original) {
+			// Compressors are caller-supplied; a panic must leave the chunk
+			// uncompressed rather than fail the turn (spec §2.5.1).
+			if c == nil || !safe.Bool(func() bool { return c.CanHandle(original) }) {
 				continue
 			}
-			compressed, err := c.Compress(original)
+			compressed, err := safe.Value(func() (string, error) { return c.Compress(original) })
 			if err != nil {
 				break // fail-open: leave this chunk uncompressed
 			}

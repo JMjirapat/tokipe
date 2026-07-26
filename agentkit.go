@@ -12,8 +12,23 @@
 //	resp, err := kit.Run(ctx, &pipeline.Request{Query: "…"})
 //
 // Every optimization is opt-in and every one fails open: if compression,
-// retrieval, or a cache backend breaks, the turn still reaches the model. The
-// only errors Run returns come from the model call itself.
+// retrieval, a tool executor, or a cache backend breaks — including by
+// panicking — the turn still reaches the model, and Run returns no error for
+// it.
+//
+// Run does return an error in four cases, none of them an optimization
+// failure:
+//
+//   - the model call itself failed;
+//   - ctx was cancelled or its deadline passed;
+//   - a caller-supplied Stage added with config.WithStage returned an error,
+//     or panicked — the caller's own code is not wrapped, because swallowing
+//     it would hide their bug rather than tolerate a third party's;
+//   - a stage wrote a malformed short-circuit value into Metadata, which is a
+//     programming error.
+//
+// The first two are ordinary. The last two are bugs in the calling program,
+// surfaced as *pipeline.StageError naming the stage responsible.
 //
 // New enforces the stage ordering the spec requires (retrieval before
 // compression, both before cache alignment, routing last). Callers who need a

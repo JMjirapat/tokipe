@@ -81,7 +81,14 @@ the decision.
 **Fail-open, always.** No optimization may break a turn. If compression errors,
 the chunk goes through uncompressed. If the cache backend is down, it is a
 miss. If the embedding service times out, the turn proceeds without retrieval.
-The only errors `Run` returns come from the model call itself.
+A panic in any of them — a tool executor, a preprocess rule, a compressor, an
+embedder — is contained the same way.
+
+`Run` returns an error only when the model call fails, when `ctx` ends, or when
+the calling program has a bug: a `Stage` you supplied via `config.WithStage`
+returned an error or panicked, or a stage wrote a malformed short-circuit
+value. Your own stages are deliberately *not* wrapped — swallowing their panics
+would hide your bugs rather than tolerate a third party's.
 
 **No global state.** Every stage takes its dependencies through its
 constructor. Nothing is a package-level singleton.

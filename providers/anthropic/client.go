@@ -240,19 +240,44 @@ func (c *Client) buildRequest(req *pipeline.Request) apiRequest {
 		conv = append(conv, apiMessage{Role: role, Content: []contentBlock{block}})
 	}
 
-	// Apply cache_control to the block that ends each breakpoint's segment.
+	// The newest user turn is held back rather than left in place. The
+	// contract's layout is static → history → retrieved context → newest
+	// message, and retrieved chunks are appended below; if the query stayed in
+	// conv, the evidence would land *after* the question it answers.
+	//
+	// Two representations of "the current turn" have to produce the same wire
+	// order: Query alone, and Query also duplicated as the final message.
+	var newest []contentBlock
+	if req.Query != "" {
+		if last := lastNonSystem(req.Messages); last >= 0 && req.Messages[last].Content == req.Query {
+			if v, ok := cnvOfMsg[last]; ok {
+				newest = conv[v].Content
+				conv = append(conv[:v], conv[v+1:]...)
+				reindexAfter(cnvOfMsg, v)
+			}
+		}
+		if newest == nil {
+			newest = []contentBlock{{Type: "text", Text: req.Query}}
+		}
+	}
+
+	// Apply cache_control against the FINAL wire order, not the logical message
+	// index. On the wire every system block precedes every message, so a
+	// breakpoint whose segment includes caller-marked static content sitting in
+	// `messages` must be anchored on that block — anchoring it on the system
+	// block would leave the static message outside the cached prefix.
 	for _, bp := range breakpoints {
 		idx := bp.AfterMessageIndex
 		if idx < 0 || idx >= len(req.Messages) {
 			continue
 		}
-		if s, ok := sysOfMsg[idx]; ok {
-			system[s].CacheControl = &cacheControl{Type: cacheControlType}
-			continue
-		}
-		if v, ok := cnvOfMsg[idx]; ok {
+		if v, ok := deepestConvUpTo(cnvOfMsg, idx); ok {
 			blocks := conv[v].Content
 			blocks[len(blocks)-1].CacheControl = &cacheControl{Type: cacheControlType}
+			continue
+		}
+		if s, ok := deepestSystemUpTo(sysOfMsg, idx); ok {
+			system[s].CacheControl = &cacheControl{Type: cacheControlType}
 		}
 	}
 
@@ -267,12 +292,9 @@ func (c *Client) buildRequest(req *pipeline.Request) apiRequest {
 		conv = append(conv, apiMessage{Role: retrievedRoleUser, Content: blocks})
 	}
 
-	// The newest user turn goes last, unless it is already the final message.
-	if req.Query != "" && !endsWithQuery(req.Messages, req.Query) {
-		conv = append(conv, apiMessage{
-			Role:    retrievedRoleUser,
-			Content: []contentBlock{{Type: "text", Text: req.Query}},
-		})
+	// The newest user turn goes last, exactly once.
+	if newest != nil {
+		conv = append(conv, apiMessage{Role: retrievedRoleUser, Content: newest})
 	}
 
 	// The API requires at least one message.
@@ -288,14 +310,54 @@ func (c *Client) buildRequest(req *pipeline.Request) apiRequest {
 	return out
 }
 
-func endsWithQuery(msgs []pipeline.Message, query string) bool {
+// lastNonSystem returns the index of the last non-system message, or -1.
+func lastNonSystem(msgs []pipeline.Message) int {
 	for i := len(msgs) - 1; i >= 0; i-- {
-		if strings.EqualFold(msgs[i].Role, "system") {
-			continue
+		if !strings.EqualFold(msgs[i].Role, "system") {
+			return i
 		}
-		return msgs[i].Content == query
 	}
-	return false
+	return -1
+}
+
+// reindexAfter fixes up a message-index -> slice-slot map after the element at
+// slot removed was deleted from the slice.
+func reindexAfter(m map[int]int, removed int) {
+	for k, v := range m {
+		switch {
+		case v == removed:
+			delete(m, k)
+		case v > removed:
+			m[k] = v - 1
+		}
+	}
+}
+
+// deepestConvUpTo returns the highest conversation slot belonging to any
+// message at or before idx. A breakpoint covers everything up to and including
+// its segment, so the marker belongs on the last block of that segment as it
+// appears on the wire.
+func deepestConvUpTo(cnvOfMsg map[int]int, idx int) (int, bool) {
+	best, found := -1, false
+	for msg, slot := range cnvOfMsg {
+		if msg <= idx && slot > best {
+			best, found = slot, true
+		}
+	}
+	return best, found
+}
+
+// deepestSystemUpTo is deepestConvUpTo for the system slice. It is only
+// consulted when the segment contains no conversation message at all, since
+// system blocks precede every message on the wire.
+func deepestSystemUpTo(sysOfMsg map[int]int, idx int) (int, bool) {
+	best, found := -1, false
+	for msg, slot := range sysOfMsg {
+		if msg <= idx && slot > best {
+			best, found = slot, true
+		}
+	}
+	return best, found
 }
 
 func formatChunk(ch pipeline.Chunk) string {

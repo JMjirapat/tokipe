@@ -168,27 +168,33 @@ func TestSingleflightErrorIsNotCachedForLaterCallers(t *testing.T) {
 	}
 }
 
-// A panicking tool must not leave followers blocked on the flight forever.
-func TestSingleflightPanicDoesNotWedgeFollowers(t *testing.T) {
+// A panicking tool must be contained, not propagated, and must not leave
+// followers blocked on the flight forever.
+//
+// This test previously asserted the opposite — that the panic reached the
+// caller. QA-REPORT.md finding 1 showed that behaviour breaks the fail-open
+// guarantee: the panic escaped Pipeline.Run and the model was never called.
+// The contract is now containment, and this test pins it.
+func TestSingleflightPanicIsContainedAndDoesNotWedgeFollowers(t *testing.T) {
+	var attempts atomic.Int64
 	st := toolcache.NewStage(toolcache.NewMemoryCache(), func(context.Context, pipeline.ToolCall) (any, error) {
+		attempts.Add(1)
 		panic("tool exploded")
 	})
 	call := pipeline.ToolCall{Name: "t", Args: map[string]any{"a": 1}}
 
-	func() {
-		defer func() {
-			if recover() == nil {
-				t.Error("panic should propagate to the caller, not be swallowed")
-			}
-		}()
-		_, _ = st.Process(context.Background(), &pipeline.Request{ToolCalls: []pipeline.ToolCall{call}})
-	}()
+	out, err := st.Process(context.Background(), &pipeline.Request{ToolCalls: []pipeline.ToolCall{call}})
+	if err != nil {
+		t.Fatalf("a panicking tool must not fail the stage, got %v", err)
+	}
+	if _, published := out.Metadata[toolcache.MetaResults]; published {
+		t.Error("a panicked call must publish no result")
+	}
 
 	// The key must be free again; this would block forever if it were not.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		defer func() { _ = recover() }()
 		_, _ = st.Process(context.Background(), &pipeline.Request{ToolCalls: []pipeline.ToolCall{call}})
 	}()
 
@@ -196,6 +202,9 @@ func TestSingleflightPanicDoesNotWedgeFollowers(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("a later caller is wedged on the panicked flight")
+	}
+	if attempts.Load() != 2 {
+		t.Errorf("attempts = %d, want 2 — a panic must not be cached as a result", attempts.Load())
 	}
 }
 

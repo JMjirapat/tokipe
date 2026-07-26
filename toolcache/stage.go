@@ -2,8 +2,10 @@ package toolcache
 
 import (
 	"context"
+	"errors"
 	"time"
 
+	"agentkit/internal/safe"
 	"agentkit/metrics"
 	"agentkit/pipeline"
 )
@@ -89,7 +91,10 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 		key, err := HashToolCall(call.Name, call.Args)
 		if err != nil {
 			// Unhashable args: execute without caching rather than skipping.
-			if v, err := s.exec(ctx, call); err == nil {
+			// Still behind the recover boundary — this path calls the same
+			// caller-supplied Executor.
+			v, err := safe.Value(func() (any, error) { return s.exec(ctx, call) })
+			if err == nil {
 				results[call.Name] = v
 			}
 			continue
@@ -97,6 +102,10 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 
 		v, err, shared := s.resolve(ctx, key, call)
 		if err != nil {
+			var pe *safe.PanicError
+			if errors.As(err, &pe) {
+				metrics.Inc(s.rec, CounterPanic, map[string]string{"tool": call.Name})
+			}
 			continue // fail-open: leave this call unresolved
 		}
 		if shared {
@@ -116,19 +125,24 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 // execution: a follower that only skipped the exec would still race ahead of
 // the leader's Set and miss the cache it was waiting for.
 func (s *Stage) resolve(ctx context.Context, key string, call pipeline.ToolCall) (val any, err error, shared bool) {
+	// The whole body runs behind a recover boundary: the Executor and the Cache
+	// are both caller-supplied, and a panic in either must degrade to an
+	// unresolved call rather than take down the turn (spec §2.5.1).
 	work := func() (any, error) {
-		if got, ok, err := s.cache.Get(ctx, call.Name, call.Args); err == nil && ok {
-			metrics.Inc(s.rec, CounterHit, map[string]string{"tool": call.Name})
-			return got.Value, nil
-		}
-		metrics.Inc(s.rec, CounterMiss, map[string]string{"tool": call.Name})
+		return safe.Value(func() (any, error) {
+			if got, ok, err := s.cache.Get(ctx, call.Name, call.Args); err == nil && ok {
+				metrics.Inc(s.rec, CounterHit, map[string]string{"tool": call.Name})
+				return got.Value, nil
+			}
+			metrics.Inc(s.rec, CounterMiss, map[string]string{"tool": call.Name})
 
-		v, err := s.exec(ctx, call)
-		if err != nil {
-			return nil, err
-		}
-		_ = s.cache.Set(ctx, call.Name, call.Args, v, s.ttl) // best effort
-		return v, nil
+			v, err := s.exec(ctx, call)
+			if err != nil {
+				return nil, err
+			}
+			_ = s.cache.Set(ctx, call.Name, call.Args, v, s.ttl) // best effort
+			return v, nil
+		})
 	}
 
 	if !s.single {
