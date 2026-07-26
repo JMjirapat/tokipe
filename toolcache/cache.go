@@ -34,9 +34,12 @@ type Cache interface {
 }
 
 // CounterHit and CounterMiss are the metric names backends emit.
+// CounterCoalesced counts calls that waited on an identical in-flight call
+// instead of executing — the stampede that singleflight prevented.
 const (
-	CounterHit  = "toolcache.hit"
-	CounterMiss = "toolcache.miss"
+	CounterHit       = "toolcache.hit"
+	CounterMiss      = "toolcache.miss"
+	CounterCoalesced = "toolcache.coalesced"
 )
 
 // compile-time assertion that the in-memory backend satisfies Cache.

@@ -87,8 +87,9 @@ returning real content, model id, and usage.
 
 - `compress.CodeCompressor` is a deliberate stub (`CanHandle` always false);
   AST-aware compression is Phase 2+ per spec §2.4.4.
-- `toolcache` has no stampede protection: concurrent misses on the same key all
-  execute. The stress test tolerates this explicitly rather than hiding it.
+- ~~`toolcache` has no stampede protection.~~ **Closed.** `toolcache/singleflight.go`
+  coalesces concurrent identical calls; the stress test now asserts exactly 2
+  executions for 2 distinct calls across 480 concurrent runs (was 6).
 - `stores/pgvector` has no real-database test in CI; its integration test is
   env-var gated.
 

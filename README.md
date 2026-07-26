@@ -106,7 +106,7 @@ need a driver live in their own nested modules:
 | `pipeline` | `Request`, `Response`, `Stage`, `Pipeline`, `ModelClient`, `Router` |
 | `config` | Functional options; owns the stage ordering |
 | `preprocess` | Resolve deterministic requests without an LLM |
-| `toolcache` | Deterministic `(tool, args)` hashing; memory + Redis backends |
+| `toolcache` | Deterministic `(tool, args)` hashing, singleflight; memory + Redis backends |
 | `rag` | Retrieval, fail-open |
 | `compress` | JSON and prose compression (`code` is a Phase 2+ stub) |
 | `cache` | Prompt-cache breakpoint placement |

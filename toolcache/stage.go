@@ -32,6 +32,9 @@ type Stage struct {
 	exec  Executor
 	ttl   time.Duration
 	rec   metrics.Recorder
+
+	single bool
+	group  group
 }
 
 // StageOption configures a Stage.
@@ -48,11 +51,22 @@ func WithTTL(ttl time.Duration) StageOption {
 	return func(s *Stage) { s.ttl = ttl }
 }
 
+// WithSingleflight enables or disables coalescing of concurrent identical
+// calls. Enabled by default.
+//
+// With it on, N goroutines that miss the same key at the same moment produce
+// one execution, not N. Disable it only when a tool must genuinely run once
+// per caller — but note that such a tool is already a poor fit for a cache,
+// which serves one execution's result to every later caller regardless.
+func WithSingleflight(enabled bool) StageOption {
+	return func(s *Stage) { s.single = enabled }
+}
+
 // NewStage returns a Stage backed by cache, executing misses via exec.
 // Both are required; a nil cache or exec makes the stage a no-op rather than
 // a panic, since a half-configured optimization must never break a turn.
 func NewStage(cache Cache, exec Executor, opts ...StageOption) *Stage {
-	s := &Stage{cache: cache, exec: exec, rec: metrics.Nop{}}
+	s := &Stage{cache: cache, exec: exec, rec: metrics.Nop{}, single: true}
 	for _, o := range opts {
 		o(s)
 	}
@@ -81,23 +95,45 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 			continue
 		}
 
-		if got, ok, err := s.cache.Get(ctx, call.Name, call.Args); err == nil && ok {
-			metrics.Inc(s.rec, CounterHit, map[string]string{"tool": call.Name})
-			results[key] = got.Value
-			continue
-		}
-		metrics.Inc(s.rec, CounterMiss, map[string]string{"tool": call.Name})
-
-		v, err := s.exec(ctx, call)
+		v, err, shared := s.resolve(ctx, key, call)
 		if err != nil {
 			continue // fail-open: leave this call unresolved
 		}
+		if shared {
+			metrics.Inc(s.rec, CounterCoalesced, map[string]string{"tool": call.Name})
+		}
 		results[key] = v
-		_ = s.cache.Set(ctx, call.Name, call.Args, v, s.ttl) // best effort
 	}
 
 	if len(results) > 0 {
 		req.SetMeta(MetaResults, results)
 	}
 	return req, nil
+}
+
+// resolve answers one tool call from the cache, or executes it. The whole
+// lookup-execute-store sequence runs inside the singleflight, not just the
+// execution: a follower that only skipped the exec would still race ahead of
+// the leader's Set and miss the cache it was waiting for.
+func (s *Stage) resolve(ctx context.Context, key string, call pipeline.ToolCall) (val any, err error, shared bool) {
+	work := func() (any, error) {
+		if got, ok, err := s.cache.Get(ctx, call.Name, call.Args); err == nil && ok {
+			metrics.Inc(s.rec, CounterHit, map[string]string{"tool": call.Name})
+			return got.Value, nil
+		}
+		metrics.Inc(s.rec, CounterMiss, map[string]string{"tool": call.Name})
+
+		v, err := s.exec(ctx, call)
+		if err != nil {
+			return nil, err
+		}
+		_ = s.cache.Set(ctx, call.Name, call.Args, v, s.ttl) // best effort
+		return v, nil
+	}
+
+	if !s.single {
+		v, err := work()
+		return v, err, false
+	}
+	return s.group.Do(key, work)
 }

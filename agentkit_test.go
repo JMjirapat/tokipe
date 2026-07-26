@@ -99,13 +99,12 @@ func TestConcurrentRunsShareStatefulComponents(t *testing.T) {
 		t.Errorf("short circuits = %d, want %d", got, total/2)
 	}
 
-	// Only two distinct tool calls exist across every goroutine, so the shared
-	// cache must have collapsed thousands of calls down to a handful. It is not
-	// exactly 2: concurrent goroutines can miss simultaneously before the first
-	// result is stored, which is correct-but-racy-by-design (no stampede lock
-	// in v1). The point is that it is nowhere near the call count.
-	if n := execs.Load(); n > 40 {
-		t.Errorf("tool executed %d times for 2 distinct calls; the shared cache is not working", n)
+	// Only two distinct tool calls exist across every goroutine. The cache
+	// collapses repeats over time and singleflight collapses them across
+	// concurrent callers, so the total must be exactly 2 — a stampede would
+	// show up here as anything more.
+	if n := execs.Load(); n != 2 {
+		t.Errorf("tool executed %d times for 2 distinct calls, want exactly 2", n)
 	}
 	t.Logf("%d runs, %d tool executions, metrics=%v", total, execs.Load(), rec.Snapshot())
 }
