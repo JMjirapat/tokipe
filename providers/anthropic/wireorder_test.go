@@ -190,3 +190,77 @@ func TestNoCacheControlOnRetrievedChunks(t *testing.T) {
 		t.Fatalf("no messages in payload: %s", raw)
 	}
 }
+
+// R2-3: which message is "newest" is a property of Messages, not of Query.
+// An earlier fix only looked when Query was non-empty, so a caller carrying
+// the current turn in Messages with an empty Query got evidence appended
+// after the question.
+func TestEmptyQueryStillPutsRetrievedContextFirst(t *testing.T) {
+	out := build(t, &pipeline.Request{
+		Messages: []pipeline.Message{
+			{Role: "system", Content: "stable"},
+			{Role: "user", Content: "current question"},
+		},
+		RetrievedChunks: []pipeline.Chunk{{Content: "retrieved evidence"}},
+	})
+
+	wire := texts(out)
+	evidence, question := -1, -1
+	for i, text := range wire {
+		if strings.Contains(text, "retrieved evidence") {
+			evidence = i
+		}
+		if text == "current question" {
+			question = i
+		}
+	}
+	if evidence < 0 || question < 0 {
+		t.Fatalf("missing content in wire: %v", wire)
+	}
+	if evidence > question {
+		t.Fatalf("with an empty Query, evidence at %d still follows the question at %d\nwire: %v",
+			evidence, question, wire)
+	}
+}
+
+// Ordering must not depend on whether the caller populated Query.
+func TestWireOrderIsIndependentOfHowTheTurnIsExpressed(t *testing.T) {
+	chunks := []pipeline.Chunk{{Content: "retrieved evidence"}}
+	history := []pipeline.Message{
+		{Role: "system", Content: "stable"},
+		{Role: "user", Content: "current question"},
+	}
+
+	withQuery := texts(build(t, &pipeline.Request{
+		Query: "current question", Messages: history, RetrievedChunks: chunks,
+	}))
+	withoutQuery := texts(build(t, &pipeline.Request{
+		Messages: history, RetrievedChunks: chunks,
+	}))
+
+	if strings.Join(withQuery, "|") != strings.Join(withoutQuery, "|") {
+		t.Fatalf("populating Query changed the wire order:\n with: %v\n without: %v",
+			withQuery, withoutQuery)
+	}
+}
+
+// An assistant prefill is still the newest turn, and must not be re-appended
+// as a user message.
+func TestNewestTurnKeepsItsRole(t *testing.T) {
+	out := build(t, &pipeline.Request{
+		Messages: []pipeline.Message{
+			{Role: "system", Content: "stable"},
+			{Role: "user", Content: "question"},
+			{Role: "assistant", Content: "partial answer"},
+		},
+		RetrievedChunks: []pipeline.Chunk{{Content: "evidence"}},
+	})
+
+	final := out.Messages[len(out.Messages)-1]
+	if final.Content[len(final.Content)-1].Text != "partial answer" {
+		t.Fatalf("last message = %+v, want the assistant prefill", final)
+	}
+	if final.Role != "assistant" {
+		t.Errorf("role = %q, want assistant preserved", final.Role)
+	}
+}

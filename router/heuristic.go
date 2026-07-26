@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"agentkit/internal/safe"
 	"agentkit/metrics"
 	"agentkit/pipeline"
 )
@@ -196,7 +197,7 @@ func (r *HeuristicRouter) Route(_ context.Context, req *pipeline.Request) RouteD
 
 func (r *HeuristicRouter) record(d RouteDecision) RouteDecision {
 	metrics.Inc(r.rec, "router_decision", map[string]string{
-		"client": d.Client.Name(),
+		"client": safe.Name(d.Client.Name, UnnamedClient),
 		"reason": d.Reason,
 	})
 	return d

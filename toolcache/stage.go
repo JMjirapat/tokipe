@@ -125,24 +125,28 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 // execution: a follower that only skipped the exec would still race ahead of
 // the leader's Set and miss the cache it was waiting for.
 func (s *Stage) resolve(ctx context.Context, key string, call pipeline.ToolCall) (val any, err error, shared bool) {
-	// The whole body runs behind a recover boundary: the Executor and the Cache
-	// are both caller-supplied, and a panic in either must degrade to an
-	// unresolved call rather than take down the turn (spec §2.5.1).
+	// Get, the Executor, and Set each get their OWN recover boundary.
+	//
+	// A single boundary around all three was wrong: a panic in Get aborted the
+	// whole sequence, so the tool never ran — while an ordinary Get *error*
+	// degrades to a miss and the tool does run. A panic must behave exactly
+	// like an error at each step, or "fail-open" means something different
+	// depending on how the backend chose to fail. Likewise a Set panic must
+	// not discard a result the Executor already produced.
 	work := func() (any, error) {
-		return safe.Value(func() (any, error) {
-			if got, ok, err := s.cache.Get(ctx, call.Name, call.Args); err == nil && ok {
-				metrics.Inc(s.rec, CounterHit, map[string]string{"tool": call.Name})
-				return got.Value, nil
-			}
-			metrics.Inc(s.rec, CounterMiss, map[string]string{"tool": call.Name})
+		if got, hit := s.get(ctx, call); hit {
+			metrics.Inc(s.rec, CounterHit, map[string]string{"tool": call.Name})
+			return got, nil
+		}
+		metrics.Inc(s.rec, CounterMiss, map[string]string{"tool": call.Name})
 
-			v, err := s.exec(ctx, call)
-			if err != nil {
-				return nil, err
-			}
-			_ = s.cache.Set(ctx, call.Name, call.Args, v, s.ttl) // best effort
-			return v, nil
-		})
+		v, err := safe.Value(func() (any, error) { return s.exec(ctx, call) })
+		if err != nil {
+			return nil, err
+		}
+
+		s.set(ctx, call, v) // best effort, never able to discard v
+		return v, nil
 	}
 
 	if !s.single {
@@ -150,4 +154,38 @@ func (s *Stage) resolve(ctx context.Context, key string, call pipeline.ToolCall)
 		return v, err, false
 	}
 	return s.group.Do(key, work)
+}
+
+// get consults the cache. Any failure — an error, a miss, or a panic — is
+// reported identically as "not found", so the caller proceeds to execute.
+func (s *Stage) get(ctx context.Context, call pipeline.ToolCall) (value any, hit bool) {
+	err := safe.Do(func() error {
+		got, ok, err := s.cache.Get(ctx, call.Name, call.Args)
+		if err != nil || !ok {
+			return nil
+		}
+		value, hit = got.Value, true
+		return nil
+	})
+	if err != nil {
+		// A panicking backend is a broken backend; count it and treat the
+		// lookup as a miss.
+		metrics.Inc(s.rec, CounterPanic, map[string]string{"tool": call.Name, "op": "get"})
+		return nil, false
+	}
+	return value, hit
+}
+
+// set stores a freshly executed result. Best effort in every sense: an error
+// is ignored and a panic is contained, because the result is already in hand
+// and losing the cache write is strictly better than losing the result.
+func (s *Stage) set(ctx context.Context, call pipeline.ToolCall, v any) {
+	if err := safe.Do(func() error {
+		return s.cache.Set(ctx, call.Name, call.Args, v, s.ttl)
+	}); err != nil {
+		var pe *safe.PanicError
+		if errors.As(err, &pe) {
+			metrics.Inc(s.rec, CounterPanic, map[string]string{"tool": call.Name, "op": "set"})
+		}
+	}
 }

@@ -11,6 +11,7 @@ import (
 	"agentkit/metrics"
 	"agentkit/pipeline"
 	"agentkit/providers/mock"
+	"agentkit/router"
 	"agentkit/stores"
 	"agentkit/toolcache"
 )
@@ -226,5 +227,128 @@ func TestEverythingPanicsAndTheTurnStillCompletes(t *testing.T) {
 	}
 	if resp.Content != "answer" || model.Calls() != 1 {
 		t.Fatalf("resp=%+v calls=%d", resp, model.Calls())
+	}
+}
+
+// --- QA round 2 -------------------------------------------------------------
+
+// R2-1: Name() is caller code too. Round 1 wrapped CanHandle and Handle but
+// left Name outside the boundary, so a rule that had *already succeeded* could
+// still take down the turn while being identified for metrics.
+type panicNameRule struct{}
+
+func (panicNameRule) CanHandle(*pipeline.Request) bool { return true }
+func (panicNameRule) Handle(*pipeline.Request) (*pipeline.Response, error) {
+	return &pipeline.Response{Content: "handled"}, nil
+}
+func (panicNameRule) Name() string { panic("rule name panic") }
+
+func TestPanickingRuleNameStillShortCircuits(t *testing.T) {
+	model := mock.New("m", "from-model")
+	kit := agentkit.New(model, config.WithPreprocess(panicNameRule{}))
+
+	resp, err := kit.Run(context.Background(), &pipeline.Request{Query: "q"})
+	if err != nil {
+		t.Fatalf("a panicking Name must not fail the turn: %v", err)
+	}
+	if resp.Content != "handled" || !resp.ShortCircuited {
+		t.Fatalf("the rule's result must survive: %+v", resp)
+	}
+	if model.Calls() != 0 {
+		t.Errorf("model calls = %d, want 0 — the rule handled it", model.Calls())
+	}
+}
+
+// The same class, found while verifying R2-1 rather than reported: a
+// ModelClient whose Name panics is used for routing metadata.
+type panicNameClient struct{}
+
+func (panicNameClient) Name() string { panic("client name panic") }
+func (panicNameClient) Send(context.Context, *pipeline.Request) (*pipeline.Response, error) {
+	return &pipeline.Response{Content: "routed"}, nil
+}
+
+func TestPanickingClientNameStillRoutes(t *testing.T) {
+	kit := agentkit.New(mock.New("fallback", "no"),
+		config.WithRouter(router.NewHeuristicRouter(
+			router.Tier{Client: panicNameClient{}, MaxComplexity: 1.0})))
+
+	req := &pipeline.Request{Query: "q"}
+	resp, err := kit.Run(context.Background(), req)
+	if err != nil {
+		t.Fatalf("a panicking client Name must not fail the turn: %v", err)
+	}
+	if resp.Content != "routed" {
+		t.Fatalf("resp = %+v, want the routed client's answer", resp)
+	}
+	if got := req.Metadata["router.client"]; got != pipeline.UnnamedClient {
+		t.Errorf("router.client = %v, want the %q fallback", got, pipeline.UnnamedClient)
+	}
+}
+
+// R2-2: a panic must behave exactly like an error at each step. A Get error
+// degrades to a miss and the tool runs, so a Get panic must too.
+type panicGetCache struct{ sets int }
+
+func (panicGetCache) Get(context.Context, string, map[string]any) (toolcache.CachedResult, bool, error) {
+	panic("cache get panic")
+}
+func (c *panicGetCache) Set(context.Context, string, map[string]any, any, time.Duration) error {
+	c.sets++
+	return nil
+}
+
+func TestPanickingCacheGetDegradesToAMiss(t *testing.T) {
+	execs := 0
+	cache := &panicGetCache{}
+	st := toolcache.NewStage(cache, func(context.Context, pipeline.ToolCall) (any, error) {
+		execs++
+		return "fresh value", nil
+	})
+
+	out, err := st.Process(context.Background(), &pipeline.Request{
+		ToolCalls: []pipeline.ToolCall{{Name: "t", Args: map[string]any{"a": 1}}},
+	})
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if execs != 1 {
+		t.Fatalf("executor ran %d times, want 1 — a Get panic must be a miss, not a skip", execs)
+	}
+	results, ok := out.Metadata[toolcache.MetaResults].(map[string]any)
+	if !ok || len(results) != 1 {
+		t.Fatalf("the fresh result must still be published, got %v", out.Metadata[toolcache.MetaResults])
+	}
+	for _, v := range results {
+		if v != "fresh value" {
+			t.Errorf("got %v, want the executor's value", v)
+		}
+	}
+}
+
+// A Set panic must not discard a result the executor already produced.
+type panicSetCache struct{}
+
+func (panicSetCache) Get(context.Context, string, map[string]any) (toolcache.CachedResult, bool, error) {
+	return toolcache.CachedResult{}, false, nil
+}
+func (panicSetCache) Set(context.Context, string, map[string]any, any, time.Duration) error {
+	panic("cache set panic")
+}
+
+func TestPanickingCacheSetPreservesTheResult(t *testing.T) {
+	st := toolcache.NewStage(panicSetCache{}, func(context.Context, pipeline.ToolCall) (any, error) {
+		return "fresh value", nil
+	})
+
+	out, err := st.Process(context.Background(), &pipeline.Request{
+		ToolCalls: []pipeline.ToolCall{{Name: "t", Args: map[string]any{"a": 1}}},
+	})
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	results, ok := out.Metadata[toolcache.MetaResults].(map[string]any)
+	if !ok || len(results) != 1 {
+		t.Fatalf("a failed cache write must not lose the result, got %v", out.Metadata[toolcache.MetaResults])
 	}
 }

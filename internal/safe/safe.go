@@ -58,3 +58,20 @@ func Bool(fn func() bool) (ok bool) {
 	}()
 	return fn()
 }
+
+// Name runs fn, falling back to a placeholder if it panics or returns "".
+//
+// Name() looks too trivial to fail, which is exactly why it was missed: a
+// panicking Name on an otherwise working Rule or ModelClient took down a turn
+// that had already succeeded. Identification is never worth an outage.
+func Name(fn func() string, fallback string) (name string) {
+	defer func() {
+		if r := recover(); r != nil {
+			name = fallback
+		}
+	}()
+	if n := fn(); n != "" {
+		return n
+	}
+	return fallback
+}

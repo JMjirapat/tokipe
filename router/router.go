@@ -30,3 +30,7 @@ type Tier struct {
 	Client        pipeline.ModelClient
 	MaxComplexity float64
 }
+
+// UnnamedClient is reported when a ModelClient's Name method panics or
+// returns "".
+const UnnamedClient = "unnamed_client"

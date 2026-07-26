@@ -6,7 +6,11 @@
 // dependencies. See docs/spec.md §2.3.
 package pipeline
 
-import "context"
+import (
+	"context"
+
+	"agentkit/internal/safe"
+)
 
 // Request flows through every stage. Stages read and mutate fields relevant
 // to their job and pass the (possibly modified) Request to the next stage.
@@ -210,7 +214,7 @@ func (p *Pipeline) Run(ctx context.Context, req *Request) (*Response, error) {
 		if d := p.router.Route(ctx, req); d.Client != nil {
 			client = d.Client
 			req.SetMeta("router.reason", d.Reason)
-			req.SetMeta("router.client", d.Client.Name())
+			req.SetMeta("router.client", safe.Name(d.Client.Name, UnnamedClient))
 		}
 	}
 	return client.Send(ctx, req)
@@ -229,3 +233,7 @@ type constError string
 func (e constError) Error() string { return string(e) }
 
 const errBadShortCircuit = constError("metadata " + MetaShortCircuit + " is not a *Response")
+
+// UnnamedClient is reported in Metadata when a ModelClient's Name method
+// panics or returns "".
+const UnnamedClient = "unnamed_client"

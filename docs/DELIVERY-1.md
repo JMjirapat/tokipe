@@ -2,10 +2,44 @@
 
 **Date:** 2026-07-26
 **Scope:** the complete BRD/tech-spec in [spec.md](spec.md), Phases 0–4
-**Status:** QA round 1 complete; all findings resolved, awaiting re-verification
+**Status:** QA rounds 1 and 2 complete; all findings resolved, awaiting re-verification
 **Not yet:** tagged, pushed, or run against a real Anthropic endpoint
 
-## 0. QA round 1
+## 0. QA history
+
+### Round 2 — revision `b5cdd38`
+
+QA re-verified the six fixes at their original inputs (all pass) and then went
+looking for *adjacent* cases the new boundaries missed. It found three more, and
+returned NO-GO again. Correctly: two were real gaps in the round 1 fix rather
+than new code.
+
+| # | Finding | Resolution |
+|---|---|---|
+| R2-1 | `Rule.Name()` still outside the panic boundary | Fixed. **Wider than reported** — see below. |
+| R2-2 | A `Cache.Get` panic suppressed the tool execution entirely | Fixed: `Get`, `Executor` and `Set` now have separate boundaries. |
+| R2-3 | Empty `Query` still left retrieved context after the newest message | Fixed: the newest turn is derived from `Messages`, not from `Query`. |
+
+**R2-1 was wider than reported, in the same way round 1 was.** QA found the
+unguarded `Name()` on preprocess `Rule`. Sweeping every call into a
+caller-supplied `Name()` found the same hole on `ModelClient` inside both the
+router's metrics and `Pipeline.Run`'s routing metadata. All now go through
+`safe.Name`, which falls back to a placeholder. `Name()` looks too trivial to
+fail, which is exactly why it was missed twice — and a panicking `Name` was
+discarding results that had *already succeeded*.
+
+`Registry.Register` still calls `Name()` unguarded, deliberately: that runs at
+wiring time, not on the request path, and failing fast on a broken rule during
+construction is the desired behaviour.
+
+**R2-2 is the sharper lesson.** The round 1 fix wrapped the whole
+get→execute→store sequence in one boundary, which made a panic behave
+*differently* from an error at the same step: an ordinary `Get` error degrades
+to a miss and the tool still runs, but a `Get` panic aborted everything and the
+tool never ran. Containment is not enough — a contained panic has to land in
+the same place the equivalent error does. Each step now has its own boundary.
+
+### Round 1 — revision `94277a1`
 
 [QA-REPORT.md](QA-REPORT.md) returned **NO-GO** with 2 Blockers, 3 Majors and
 1 Minor. Every finding was independently reproduced before being fixed — none
@@ -69,14 +103,14 @@ tests" turned out not to be reproducible with any plain `go` invocation — it
 came from a wrapper's summary line. Counting method, not just the number:
 
 ```bash
-go test -race -json -count=1 ./... | grep -c '"Action":"run"'   # 269, incl. subtests
-grep -rhoE '^func (Test|Example)[A-Za-z0-9_]*' --include='*_test.go' . | wc -l  # 211 funcs
+go test -race -json -count=1 ./... | grep -c '"Action":"run"'   # 276, incl. subtests
+grep -rhoE '^func (Test|Example)[A-Za-z0-9_]*' --include='*_test.go' . | wc -l  # 218 funcs
 go list ./... | wc -l                                            # 25 packages
 ```
 
 | Claim | Evidence | Result |
 |---|---|---|
-| Everything builds and passes under the race detector | `go test -race ./...` | 269 run events / 211 test funcs, 25 packages, 0 failures |
+| Everything builds and passes under the race detector | `go test -race ./...` | 276 run events / 218 test funcs, 25 packages, 0 failures |
 | No CGo required | `CGO_ENABLED=0 go build ./...` | clean |
 | Core has zero third-party dependencies | `go list -deps ./...` filtered, enforced in CI | none |
 | ≥30% input-token reduction | `go run ./benchmarks` | **57.1%** |
@@ -93,8 +127,8 @@ Coverage, all above the spec's ≥80% bar for the five named packages:
 | `budget` | 100.0% | | `rag` | 97.7% |
 | `router` | 100.0% | | `cache` | 97.2% |
 | `agentkit` | 100.0% | | `providers/cli` | 94.3% |
-| `compress` | 98.9% | | `providers/anthropic` | 95.1% |
-| `preprocess` | 98.8% | | `toolcache` | 94.7% |
+| `compress` | 98.9% | | `providers/anthropic` | 94.6% |
+| `preprocess` | 98.8% | | `toolcache` | 93.7% |
 | `pipeline` | 97.0% | | `config` | 90.5% |
 | `stores/mock` | 96.7% | | `lazyload` | 88.1% |
 
@@ -134,9 +168,9 @@ because the owner has no API credit.
 
 ## 5. Handover checklist for the next phase
 
-- [x] Independent verification and QA round 1 — see [QA-REPORT.md](QA-REPORT.md)
-- [ ] QA re-verification of the six fixes against the GO criteria in
-      QA-REPORT.md §5
+- [x] Independent verification and QA rounds 1 and 2 — see [QA-REPORT.md](QA-REPORT.md)
+- [ ] QA round 3: re-verify the three round 2 fixes against the GO criteria in
+      QA-REPORT.md §6
 - [ ] Decide the final module path (`agentkit` → `github.com/<org>/agentkit`)
 - [ ] Run the Anthropic prompt-caching test once credit exists
 - [ ] Set a git remote and push

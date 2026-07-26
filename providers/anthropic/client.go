@@ -247,18 +247,39 @@ func (c *Client) buildRequest(req *pipeline.Request) apiRequest {
 	//
 	// Two representations of "the current turn" have to produce the same wire
 	// order: Query alone, and Query also duplicated as the final message.
-	var newest []contentBlock
-	if req.Query != "" {
-		if last := lastNonSystem(req.Messages); last >= 0 && req.Messages[last].Content == req.Query {
-			if v, ok := cnvOfMsg[last]; ok {
-				newest = conv[v].Content
-				conv = append(conv[:v], conv[v+1:]...)
-				reindexAfter(cnvOfMsg, v)
-			}
+	// Which message is "newest" is a property of Messages, not of Query. An
+	// earlier version only looked when Query was non-empty, so a caller that
+	// carried the current turn in Messages and left Query empty — normal for
+	// tool-resolution and pre-assembled callers — got its evidence appended
+	// after the question.
+	var (
+		newest     []contentBlock
+		newestRole = retrievedRoleUser
+	)
+	last := lastNonSystem(req.Messages)
+
+	// pullNewest lifts the final message out of the history so retrieved
+	// context can be inserted before it. Its role is preserved: an assistant
+	// prefill re-appended as a user turn would corrupt the conversation.
+	pullNewest := func() {
+		v, ok := cnvOfMsg[last]
+		if !ok {
+			return
 		}
-		if newest == nil {
-			newest = []contentBlock{{Type: "text", Text: req.Query}}
-		}
+		newest, newestRole = conv[v].Content, conv[v].Role
+		conv = append(conv[:v], conv[v+1:]...)
+		reindexAfter(cnvOfMsg, v)
+	}
+
+	switch {
+	case req.Query != "" && last >= 0 && req.Messages[last].Content == req.Query:
+		// Both representations present: use the message, do not duplicate it.
+		pullNewest()
+	case req.Query != "":
+		newest = []contentBlock{{Type: "text", Text: req.Query}}
+	case last >= 0:
+		// Query empty: the final message *is* the current turn.
+		pullNewest()
 	}
 
 	// Apply cache_control against the FINAL wire order, not the logical message
@@ -292,9 +313,9 @@ func (c *Client) buildRequest(req *pipeline.Request) apiRequest {
 		conv = append(conv, apiMessage{Role: retrievedRoleUser, Content: blocks})
 	}
 
-	// The newest user turn goes last, exactly once.
+	// The newest turn goes last, exactly once, keeping its original role.
 	if newest != nil {
-		conv = append(conv, apiMessage{Role: retrievedRoleUser, Content: newest})
+		conv = append(conv, apiMessage{Role: newestRole, Content: newest})
 	}
 
 	// The API requires at least one message.

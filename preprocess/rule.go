@@ -139,11 +139,19 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 			// Fail-open: treat as "did not match" and keep going.
 			continue
 		}
+		// Name() is caller code too. A panic here would discard a result the
+		// rule already produced successfully — identification is never worth
+		// failing a turn that had otherwise succeeded.
+		name := safe.Name(r.Name, UnnamedRule)
+
 		resp.ShortCircuited = true
 		req.SetMeta(pipeline.MetaShortCircuit, resp)
-		req.SetMeta(MetaMatchedRule, r.Name())
-		metrics.Inc(s.metrics, CounterShortCircuit, map[string]string{"rule": r.Name()})
+		req.SetMeta(MetaMatchedRule, name)
+		metrics.Inc(s.metrics, CounterShortCircuit, map[string]string{"rule": name})
 		return req, nil
 	}
 	return req, nil
 }
+
+// UnnamedRule is reported when a Rule's Name method panics or returns "".
+const UnnamedRule = "unnamed_rule"

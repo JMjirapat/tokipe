@@ -1,35 +1,213 @@
 # QA Verification Report — agentkit Delivery 1
 
 **Review date:** 2026-07-26  
-**Reviewed revision:** `94277a1`  
+**Round 1 revision:** `94277a1`
+
+**Round 2 revision:** `b5cdd38`
+
 **Source of truth:** [spec.md](spec.md)  
 **Delivery claim:** [DELIVERY-1.md](DELIVERY-1.md)  
 **QA procedure:** [QA-BRIEF.md](QA-BRIEF.md)  
-**Result:** **NO-GO for `v1.0.0`**
+**Current result:** **NO-GO for `v1.0.0` after QA round 2**
 
 ## 1. Executive summary
 
-Delivery 1 builds successfully, passes the race detector, satisfies the stated
-coverage threshold, and reproduces the documented 57.1% synthetic benchmark
-reduction. The core cache-aligner tests, concurrency tests, nested adapter
-modules, and security checks reviewed during this pass were also green.
+All six inputs reported in QA round 1 now pass. Revision `b5cdd38` also builds
+successfully, passes the race detector, satisfies the stated coverage
+threshold, and reproduces the documented 57.1% synthetic benchmark reduction.
 
-The release is not ready to tag because the review found:
+Adversarial re-verification of the new recovery and wire-order boundaries found
+three additional cases not covered by the added regression tests:
 
 | Severity | Count |
 |---|---:|
-| Blocker | 2 |
-| Major | 3 |
-| Minor | 1 |
+| Blocker | 1 |
+| Major | 2 |
+| Minor | 0 |
 
-The highest-impact defect is a violation of the fail-open guarantee: a panic
-from a tool executor escapes `Pipeline.Run` and prevents the model call.
-Additional findings affect deterministic tool-cache hashing and the Anthropic
-serialization of cache breakpoints and retrieved context.
+The release remains NO-GO because `preprocess.Rule.Name()` is still outside
+the new panic boundary and can panic out of `Pipeline.Run`. Cache backend
+panics do not yet behave like ordinary cache errors, and the Anthropic adapter
+still violates the dynamic-before-newest ordering for requests that carry the
+newest message in `Messages` while leaving `Query` empty.
 
 No production source code was changed during this review.
 
-## 2. Findings
+## 2. QA round 2 findings
+
+### [Blocker] `Rule.Name()` panic still escapes `Pipeline.Run`
+
+**File:** `preprocess/rule.go:144`
+
+**Contract:** `spec.md` §2.5.1; `agentkit.go:14-17`
+
+**Claim**
+
+Revision `b5cdd38` states that caller-supplied preprocess rules now run behind
+`internal/safe` and that a panic in an optimization still reaches the model.
+
+**Reality**
+
+`Rule.CanHandle` and `Rule.Handle` are wrapped, but `Rule.Name()` is invoked
+outside the recovery boundary after a successful result. A rule whose name
+method panics still takes down the turn.
+
+**Concrete input**
+
+```go
+type panicNameRule struct{}
+
+func (panicNameRule) CanHandle(*pipeline.Request) bool { return true }
+func (panicNameRule) Handle(*pipeline.Request) (*pipeline.Response, error) {
+    return &pipeline.Response{Content: "handled"}, nil
+}
+func (panicNameRule) Name() string { panic("rule name panic") }
+
+kit := agentkit.New(model, config.WithPreprocess(panicNameRule{}))
+_, _ = kit.Run(context.Background(), &pipeline.Request{Query: "q"})
+```
+
+**Observed result**
+
+```text
+Pipeline.Run panicked instead of containing Rule.Name: rule name panic
+```
+
+**Impact**
+
+The load-bearing fail-open guarantee is still incomplete for a supported
+extension interface.
+
+**Required before GO**
+
+Evaluate the rule name behind the same recovery boundary, or obtain a safe
+fallback name before committing the short-circuit result. Add regression
+coverage for panics from every `Rule` method.
+
+---
+
+### [Major] A panicking cache `Get` does not degrade to a cache miss
+
+**File:** `toolcache/stage.go:127-145`
+
+**Contract:** `spec.md` §2.5.1; `docs/DELIVERY-1.md` §0
+
+**Claim**
+
+A cache backend failure degrades to a miss. Delivery round 1 additionally
+states that dependency panics are contained exactly like ordinary errors.
+
+**Reality**
+
+The whole get/execute/set sequence is wrapped in one `safe.Value` call. If
+`Cache.Get` panics, `safe.Value` returns immediately with a `PanicError`.
+The executor is never called and no fresh result is published. An ordinary
+`Get` error, by contrast, is treated as a miss and proceeds to execution.
+
+**Concrete input**
+
+```go
+type panicGetCache struct{}
+
+func (panicGetCache) Get(
+    context.Context, string, map[string]any,
+) (toolcache.CachedResult, bool, error) {
+    panic("cache get panic")
+}
+func (panicGetCache) Set(
+    context.Context, string, map[string]any, any, time.Duration,
+) error {
+    return nil
+}
+```
+
+Run one tool call through a `toolcache.Stage` backed by `panicGetCache`.
+
+**Observed result**
+
+```text
+executor calls = 0, want 1 after cache panic
+fresh result was not published
+```
+
+**Impact**
+
+A cache outage can suppress the real tool execution instead of merely removing
+the cache optimization. The model call still occurs, but without the tool
+result the request was resolving.
+
+The same recovery shape also means a panic from `Cache.Set` discards an
+already-successful executor result, whereas an ordinary `Set` error is
+best-effort and preserves that result.
+
+**Required before GO**
+
+Place separate recovery boundaries around `Get`, `Executor`, and `Set`.
+Treat a recovered `Get` panic as a miss, and treat a recovered `Set` panic as
+best-effort failure while preserving the executor value.
+
+---
+
+### [Major] Empty `Query` still leaves retrieved context after the newest message
+
+**File:** `providers/anthropic/client.go:250-297`
+
+**Contract:** `spec.md` §2.4.6
+
+**Claim**
+
+Anthropic serialization always emits:
+
+```text
+static → history → retrieved context → newest message
+```
+
+**Reality**
+
+The newest message is held back only inside `if req.Query != ""`. A valid
+request shape with the current turn represented by the final message and an
+empty `Query` leaves that message in `conv`; retrieved chunks are then appended
+after it.
+
+**Concrete input**
+
+```go
+req := &pipeline.Request{
+    Messages: []pipeline.Message{
+        {Role: "system", Content: "stable"},
+        {Role: "user", Content: "current question"},
+    },
+    RetrievedChunks: []pipeline.Chunk{
+        {Content: "retrieved evidence"},
+    },
+}
+```
+
+**Observed wire order**
+
+```text
+1. user: current question
+2. user: Retrieved context / retrieved evidence
+```
+
+**Impact**
+
+The provider sees a different order depending on whether callers duplicate
+the current turn into `Query`. Empty-query requests are plausible for
+tool-resolution and preassembled-message callers, and the `Request` contract
+does not prohibit them.
+
+**Required before GO**
+
+Determine the newest message from `Messages` independently of whether `Query`
+is populated, while continuing to avoid duplicating the current turn when both
+representations are present.
+
+## 3. QA round 1 findings — resolved at their original inputs
+
+The six findings below are retained as the historical round 1 record. Their
+exact original inputs all pass on revision `b5cdd38`; round 2 findings above
+are additional boundary cases discovered while verifying the fixes.
 
 ### [Blocker] Tool executor panic breaks the fail-open guarantee
 
@@ -340,7 +518,7 @@ Narrow the documentation to built-in optimization dependency failures and
 document cancellation, custom-stage errors, and programming/configuration
 errors separately.
 
-## 3. Verification results
+## 4. Verification results
 
 ### Baseline
 
@@ -355,11 +533,11 @@ CGO_ENABLED=0 go build ./...
 
 ### Nested modules
 
-Both nested modules passed their test suites:
+Both nested modules passed under the race detector:
 
 ```bash
-cd stores/pgvector && go test ./...
-cd toolcache/redis && go test ./...
+cd stores/pgvector && go test -race ./...
+cd toolcache/redis && go test -race ./...
 ```
 
 No external database or Redis service was used; credential-gated integration
@@ -398,19 +576,19 @@ The reported package coverage values were reproduced:
 | `router` | 100.0% |
 | `compress` | 98.9% |
 | `preprocess` | 98.8% |
-| `rag` | 97.6% |
+| `rag` | 97.7% |
 | `cache` | 97.2% |
 | `pipeline` | 97.0% |
 | `stores/mock` | 96.7% |
-| `providers/anthropic` | 94.3% |
+| `providers/anthropic` | 95.1% |
 | `providers/cli` | 94.3% |
-| `toolcache` | 93.0% |
+| `toolcache` | 94.7% |
 | `config` | 90.5% |
 | `lazyload` | 88.1% |
 
 The five packages named by the specification all exceed the required 80%.
 
-## 4. Areas reviewed with no demonstrated defect
+## 5. Areas reviewed with no demonstrated defect
 
 - Cache-aligner breakpoint computation is deterministic for identical inputs.
 - The core aligner does not place a breakpoint after retrieved chunks.
@@ -430,19 +608,18 @@ The five packages named by the specification all exceed the required 80%.
 
 The known gaps in `DELIVERY-1.md` §3 were not re-reported as defects.
 
-## 5. Release decision
+## 6. Release decision
 
 **Current decision: NO-GO**
 
-The decision can change to **GO** when all of the following are complete:
+The six original round 1 criteria are satisfied at their reported inputs. The
+decision can change to **GO** when the round 2 findings are complete:
 
-1. Tool executor panics fail open and the model call is preserved.
-2. Non-UTF-8 tool arguments cannot collide silently.
-3. Anthropic cache breakpoints cover the complete static prefix.
-4. Anthropic serialization always places retrieved context before the newest
-   message.
-5. The Delivery 1 test count and `Pipeline.Run` error documentation are
-   corrected.
-6. Regression tests are added for all four behavioural defects.
-7. The full root and nested-module verification commands pass again.
-
+1. Every method on a caller-supplied preprocess `Rule`, including `Name`, is
+   contained by the fail-open boundary.
+2. Cache `Get` panics degrade to misses, and cache `Set` panics preserve
+   successfully executed tool results.
+3. Anthropic serialization preserves dynamic-before-newest ordering when
+   `Query` is empty and the newest turn is carried by `Messages`.
+4. Regression tests cover these three cases.
+5. The full root and nested-module verification commands pass again.
