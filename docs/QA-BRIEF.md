@@ -1,7 +1,16 @@
-# QA & Verification Brief — agentkit Delivery 1
+# QA & Verification Brief — tokipe
 
-**Audience:** independent reviewers, human or agent, verifying
-[DELIVERY-1.md](DELIVERY-1.md) before a v1.0.0 tag.
+**Audience:** independent reviewers, human or agent.
+
+**Scope:** this brief is the living procedure and now covers two deliveries.
+
+| Delivery | Covers | Status |
+|---|---|---|
+| [DELIVERY-1.md](DELIVERY-1.md) | The original spec, Phases 0–4 | Verified over five QA rounds; see [QA-REPORT.md](QA-REPORT.md) |
+| [DELIVERY-2.md](DELIVERY-2.md) | Phases 5–8 and the module rename | **Awaiting verification — this is the work in front of you** |
+
+Delivery 1's areas (§2 A–G) still apply: the code beneath them changed. Start
+with §2H, which covers only what is new.
 
 You are checking work you did not write. Assume nothing in this document is
 true until you have run something that shows it. Where a claim here is wrong,
@@ -17,9 +26,10 @@ spec clause the code contradicts. "This looks fragile" is not a finding; "with
 `args` containing a NaN float, `HashToolCall` returns X and the spec requires
 Y" is.
 
-**Do not re-report the known gaps in [DELIVERY-1.md](DELIVERY-1.md) §3.** They
-are deliberate and documented. *Do* report if you find one of them to be worse
-than described, or if a fifth one exists that is not listed.
+**Do not re-report the known gaps in DELIVERY-1 §3 or DELIVERY-2 §3.** They are
+deliberate and documented. *Do* report if you find one of them to be worse than
+described, or if one exists that is not listed — that has happened before, and
+finding it is worth more than confirming the rest.
 
 **Do not fix what you find.** Report it. A reviewer who edits the code being
 reviewed destroys the independence that makes the review worth anything.
@@ -28,7 +38,7 @@ reviewed destroys the independence that makes the review worth anything.
 
 | Severity | Meaning |
 |---|---|
-| **Blocker** | Data loss, a security hole, a broken fail-open guarantee, or a false claim in DELIVERY-1 §2 |
+| **Blocker** | Data loss, a security hole, a broken fail-open guarantee, or a false claim in a delivery document's evidence table |
 | **Major** | Wrong behaviour under a plausible input; a spec contract violated |
 | **Minor** | Correct but misleading, undocumented, or awkward to use |
 | **Note** | Observation, question, or improvement idea for a later phase |
@@ -40,10 +50,14 @@ Over-reporting severity is not caution — it costs the next reader real time.
 Read in this order. Do not skip to the code.
 
 1. [spec.md](spec.md) §1 (why) and §2 (the contract) — the source of truth
-2. [DELIVERY-1.md](DELIVERY-1.md) — what is claimed, and what is not
-3. [../PLAN.md](../PLAN.md) — decisions and documented deviations
-4. [../README.md](../README.md) — the intended shape from a caller's view
-5. `pipeline/stage.go` — every other package is downstream of this file
+2. [DELIVERY-2.md](DELIVERY-2.md) — what this delivery claims, what it does not,
+   and §5, which lists the bugs found while building it. That list is the best
+   available map of where the risk actually was.
+3. [DELIVERY-1.md](DELIVERY-1.md) — the established baseline
+4. [../PLAN.md](../PLAN.md) — decisions and documented deviations
+5. [../docs/ROADMAP.md](ROADMAP.md) — why each phase exists and what it taught
+6. [../README.md](../README.md) — the intended shape from a caller's view
+7. `pipeline/stage.go`, then `pipeline/streaming.go` — everything is downstream
 
 Baseline commands, expected to be green before you start. If any fails, stop
 and report that first — everything downstream is suspect:
@@ -119,7 +133,7 @@ cache-write premium on every call and never reads.
 - Anywhere an API key could reach a log, an error string, `Name()`, or a
   process argument.
 
-### F. Claims in DELIVERY-1 §2
+### F. Claims in the delivery evidence tables
 
 Re-run each one. Do not take the table's word for it. The benchmark in
 particular: read `benchmarks/main.go`, decide whether the baseline arm is a
@@ -131,14 +145,126 @@ the headline number worthless, so this is worth real scrutiny.
 Walk spec §2.3–§2.4 signature by signature against the code. Deviations are
 listed in DELIVERY-1 §4 — an *undocumented* deviation is a finding.
 
+## 2H. Delivery 2 areas
+
+Ranked by where this delivery's risk actually sits, not by how much code each
+one is.
+
+### H1. History trimming and the static prefix — highest risk
+
+`history.Stage` is the only thing in the library that *removes* content a
+caller supplied. Getting it wrong is expensive in two different directions.
+
+- **The static prefix must be byte-identical before and after trimming.**
+  `cache.Aligner` anchors its breakpoint there; moving one byte forfeits every
+  cache hit, and a cache write costs *more* than an ordinary token — so a bug
+  here is worse than not trimming at all. Try to construct any request where a
+  static message is altered, reordered or dropped.
+- **The newest message must never be dropped.** It is the question being asked.
+- Trimming removes the *middle*, keeping head and tail. Check the boundary
+  arithmetic in `candidates()`: off-by-one there silently drops a turn that
+  retention was supposed to protect.
+- The stage mutates the Request in place but must never write through the
+  caller's `Messages` backing array. There is a test; try to defeat it.
+- A `Summarizer` is caller code that usually calls a model. Check the headroom
+  reservation (`trimTarget`), and what happens when a summary is larger than
+  what it replaced, errors, panics, or returns whitespace.
+
+### H2. Streaming resource cleanup
+
+Every streaming path holds something that must be released: an HTTP body, a
+subprocess, a cancel func. The failure mode is a leak under load, which no unit
+test will show you.
+
+- Abandon a stream mid-iteration (`break` out of the range loop) for each of
+  `providers/anthropic`, `providers/cli`, `providers/openai`. Is the body
+  closed, the subprocess reaped, the context cancelled?
+- `providers/cli` reaps with `cmd.Wait()` exactly once — a second call would
+  mask the real exit status. Verify that holds on every path, including the
+  scanner-error path.
+- Errors split by timing: returned when nothing was produced, yielded when text
+  had already arrived. Check both providers agree, and that partial text
+  survives a mid-stream failure.
+- `Run` and `RunStream` share `prepare`. Try to make them disagree about stage
+  order, short-circuit handling, routing, or the shaped request.
+
+### H3. Observability sinks
+
+- A Phase 7 bug had `metrics.Or`'s safety wrapper hiding every optional
+  interface, silently discarding all histograms, gauges and degradations. It is
+  fixed and pinned — but look for the same *class* elsewhere: anywhere a
+  wrapper implements a subset of what it wraps.
+- Every fail-open site should report a degradation. Find one that does not.
+  Grep for the fail-open returns and compare against the `metrics.Degrade`
+  calls.
+- `Degradation.Err` must never reach a metric label — unbounded strings are a
+  cardinality explosion. Check `metrics/otel` in particular.
+- Diagnostics must never break a turn. `TestObservabilitySinkPanicsAreContained`
+  covers the methods; check nothing else calls a recorder unguarded.
+
+### H4. Compression and dedupe — the "silently wrong" pair
+
+Both of these *remove* content, and both fail quietly if they are wrong.
+
+- `compress.CodeCompressor` must never lose a declaration or emit invalid Go.
+  It re-parses its own output and compares declaration counts; try to find
+  input where that check passes but the output is wrong anyway. Generic type
+  parameters, build tags, `//go:embed`, cgo preamble comments and struct tags
+  are the interesting cases.
+- String literals and raw strings that *look like* comments must survive. That
+  is the whole reason it is AST-based.
+- `compress.DedupeStage` drops chunks. The dangerous direction is a false
+  positive — discarding something the model needed. Try to make two genuinely
+  different chunks score above the threshold: repeated boilerplate headers,
+  templated text, short chunks near the word floor, non-Latin scripts where
+  word splitting behaves differently.
+
+### H5. The OpenAI provider
+
+- Wire order must match the Anthropic adapter's: system, history, retrieved
+  context, then the newest turn exactly once. Both the `Query`-set and
+  `Query`-empty representations.
+- `CacheBreakpoints` are advisory and must not be transmitted. Confirm nothing
+  leaks onto the wire.
+- An empty `APIKey` is legitimate (local servers). Confirm no `authorization`
+  header is sent, and that no key ever reaches `Name()` or an error string.
+- Usage is absent, not zero, when a server omits it.
+
+### H6. The module rename
+
+- `"agentkit.stage_latency_ms"` and `"agentkit.stage_degraded"` are metric
+  names, not import paths, and must NOT have been rewritten. A blanket rename
+  would have broken every dashboard and alert rule built on them.
+- No stale `agentkit/...` import path anywhere buildable.
+  `docs/spec.md` is deliberately excluded — it is the historical brief.
+- All four `go.mod` files and their `replace` directives agree.
+- `v1.0.0` and `v1.0.0-agentkit-path` point where DELIVERY-2 §4.8 says.
+
+### H7. Claims, again
+
+Rounds 4 and 5 of the last review found false *claims* rather than defective
+code — a coverage claim and a test-count claim. Both are now machine-checked
+(`TestMatrixCoversEveryExtensionMethod`, `TestDeliveryInventoryIsCurrent`).
+
+Attack those guards directly:
+
+- Can the extension matrix's completeness test pass while something is
+  uncovered? Its exemption list is prose; check every entry is true.
+- Can the inventory guard pass while README's numbers are wrong?
+- Does DELIVERY-2 §2 reproduce exactly? Every row is a command.
+
 ## 3. Environment notes
 
 - Go 1.23+. `-race` needs cgo; the `CGO_ENABLED=0` check is build-only.
-- Nested modules are separate and not covered by a root-level `go test ./...`:
+- Module path is `github.com/JMjirapat/tokipe`. Nothing is published, so
+  `go get` will not resolve it; work from a local checkout.
+- Three nested modules are separate and not covered by a root-level
+  `go test ./...`:
 
   ```bash
-  cd stores/pgvector && go test ./...
-  cd toolcache/redis  && go test ./...
+  cd stores/pgvector && go test -race ./...
+  cd toolcache/redis && go test -race ./...
+  cd metrics/otel    && go test -race ./...
   ```
 
 - Tests requiring credentials or external services, all skipping by default:
@@ -148,9 +274,12 @@ listed in DELIVERY-1 §4 — an *undocumented* deviation is a finding.
   | `TestPromptCachingAcrossTurns` | `ANTHROPIC_API_KEY` | two billed API calls |
   | `TestLiveCLIs` | `AGENTKIT_CLI_LIVE=1` | subscription quota, ~15s |
   | pgvector integration | `AGENTKIT_PGVECTOR_DSN` | needs a database |
+  | `TestLiveCLIStreaming` | `AGENTKIT_CLI_LIVE=1` | subscription quota, ~20s |
 
-- `examples/cli-provider` defaults to a dry run and exits 0 with no CLI
-  installed. `-live` spends real quota.
+- `examples/cli-provider` and `examples/streaming` default to mocks or a dry
+  run and exit 0 with no CLI installed. `-live` / `-cli` spend real quota.
+- `examples/observability -break` deliberately fails every dependency. All
+  turns must still succeed; that is the assertion, not a bug.
 
 ## 4. Reporting format
 
@@ -173,9 +302,15 @@ indistinguishable from an unexamined one.
 
 Not defects; do not report them:
 
-- Missing features the spec puts in a later phase (AST-aware compression, a
-  learned router or compressor, dashboards, hosted service, multi-tenant
-  billing) — spec §1.3, §2.4.4
-- The module path still being `agentkit` — it changes at tag time
-- Absence of a git remote
+- Phase 9 items: a learned router, traffic-derived preprocess rules,
+  per-model compression tuning. ROADMAP defers these to v2 pending production
+  data.
+- Bedrock: dropped from Phase 8 with a documented reason (SigV4 needs the AWS
+  SDK, which the stdlib-only core cannot take).
+- Tool-result summarisation: deferred, because those results live in Metadata
+  as arbitrary `any` and truncating them safely needs a contract that does not
+  exist yet.
+- The root package being `agentkit` at a path ending in `tokipe` — a known open
+  decision in PLAN.md, not a defect.
+- Nothing being pushed yet
 - Style preferences with no behavioural consequence

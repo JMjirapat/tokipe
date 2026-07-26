@@ -1,0 +1,151 @@
+# Delivery 2 — tokipe, post-v1.0.0 work
+
+**Date:** 2026-07-27
+**Scope:** ROADMAP Phases 5–8, plus the module-path rename
+**Status:** feature-complete, awaiting independent verification
+**Range:** `v1.0.0-agentkit-path..HEAD` — six commits
+**Not yet:** pushed to a remote, or run against a real Anthropic endpoint
+
+Delivery 1 ([DELIVERY-1.md](DELIVERY-1.md)) covered the original spec, Phases
+0–4, and is frozen. This document covers everything since. Read them in order;
+this one does not repeat what that one established.
+
+---
+
+## 1. What is being delivered
+
+| Phase | Deliverable | Packages |
+|---|---|---|
+| 5 | Streaming — incremental results without touching the frozen `ModelClient` | `pipeline`, `providers/anthropic`, `providers/cli`, `providers/mock` |
+| 6 | Context budget enforcement — the thing `budget.Policy` computed but nothing consumed | `history`, `budget` |
+| 7 | Observability — making fail-open visible instead of silent | `metrics`, `metrics/otel` (new nested module) |
+| 8 | AST code compression, chunk dedupe, pgvector CI, OpenAI-compatible provider | `compress`, `providers/openai` |
+| — | Module path is now `github.com/JMjirapat/tokipe` | everything |
+
+New public surface, all additive — nothing in the v1.0.0 freeze changed:
+
+```go
+pipeline.StreamingClient, pipeline.Delta, Pipeline.RunStream, Collect, StreamOne
+budget.TokenCounter, CharEstimator, CountRequest, RequestCost
+history.Stage, Summarizer, ElisionSummarizer
+metrics.HistogramRecorder, GaugeRecorder, DegradationReporter, Degradation, Timed
+compress.CodeCompressor (was a no-op stub), compress.DedupeStage
+providers/openai.Client
+config.WithHistoryBudget, WithChunkDedupe
+```
+
+## 2. Evidence
+
+Reproduce from a clean checkout:
+
+```bash
+go build ./... && go vet ./... && go test -race -count=1 ./...
+CGO_ENABLED=0 go build ./...
+```
+
+| Claim | Command | Result |
+|---|---|---|
+| Root module builds, vets and passes under `-race` | `go test -race -count=1 ./...` | 0 failures, 29 packages |
+| No CGo required | `CGO_ENABLED=0 go build ./...` | clean |
+| Core still has zero third-party dependencies | `go list -deps ./...`, enforced in CI | none |
+| Three nested modules build and pass | `cd <mod> && go test -race ./...` | pgvector 14, redis 7, otel 7 |
+| v1 token reduction unchanged by any of this | `go run ./benchmarks` | **57.1%** (target ≥30%) |
+| Phase 6 saving, measured separately | same, long-loop section | **54.6%** over 100 turns, peak 1192 vs a 1200 budget |
+| Streaming works against real CLIs | `AGENTKIT_CLI_LIVE=1 go test -run TestLiveCLIStreaming ./providers/cli/` | claude, codex, opencode all stream |
+| Fail-open survives every dependency failing | `go run ./examples/observability -break` | 40/40 turns succeed, 80 degradations logged |
+| Six examples run end to end | `go run ./examples/<name>` | all pass, no credentials |
+
+Coverage after this delivery:
+
+| Package | Cov | | Package | Cov |
+|---|---|---|---|---|
+| `router` | 100.0% | | `history` | 94.7% |
+| `agentkit` (root) | 100.0% | | `providers/anthropic` | 93.2% |
+| `internal/safe` | 100.0% | | `toolcache` | 93.0% |
+| `preprocess` | 98.9% | | `metrics` | 91.1% |
+| `rag` | 97.9% | | `providers/cli` | 90.5% |
+| `cache` | 97.2% | | `pipeline` | 90.4% |
+| `compress` | 96.4% | | `config` | 89.7% |
+| `budget` | 96.0% | | `providers/openai` | 88.9% |
+| `stores/mock` | 96.7% | | `lazyload` | 88.1% |
+
+Two packages were below standard when this document was first drafted and were
+fixed before handover rather than disclosed as gaps: `budget` (41.3% — the
+Phase 6 counter had no direct tests) and `internal/safe` (0% — the fail-open
+primitive itself, exercised only indirectly through the extension matrix).
+
+## 3. What is NOT verified
+
+Read this before signing off. These are known and deliberate.
+
+| Gap | Why | Risk |
+|---|---|---|
+| **Anthropic prompt caching, real endpoint** | Needs pay-as-you-go API credit; a Claude Pro/Max subscription is a different product and issues no API key. Test written, skips cleanly. | The caching benefit is designed and unit-tested, **not field-proven**. Unchanged since Delivery 1. |
+| **pgvector against a real database** | A CI job now exists and fails if its tests skip, but it has never run — nothing has been pushed. No Docker on the development machine. | SQL correctness beyond identifier validation is still unproven *in practice*. |
+| **OpenAI provider against a real server** | No API key available. Everything is `httptest`-based. | Wire-format assumptions are unconfirmed against any live OpenAI-compatible server. |
+| **Streaming under adverse networks** | Tested against `httptest` and real CLIs, never against a slow, lossy or half-closed connection. | Resource-cleanup paths are the risk; see QA-BRIEF §B. |
+| **Real-world integration** | Spec §1.2 wants two unrelated adopting systems. Still only this repository's examples. | Interface gaps that appear only under real use. |
+| **Benchmark token accounting** | 4 chars/token estimate, not a tokenizer. Both arms measured identically, so the *ratio* holds. | Sound as comparison, weaker as an absolute. |
+
+## 4. Decisions worth reviewing
+
+Each of these is a judgement call a reviewer may reasonably disagree with.
+
+1. **Streaming is an optional interface, not a change to `ModelClient`.**
+   `ModelClient` froze at v1.0.0. Widening it would break every implementation.
+   `Run` and `RunStream` share one `prepare` helper so the two paths cannot
+   drift.
+
+2. **History trimming removes the MIDDLE, not the oldest turns.** Dropping from
+   the front changes the first non-static bytes every turn, so providers that
+   cache on longest-common-prefix never hit. Head and tail survive.
+
+3. **The degradation sink lives on `metrics.Recorder`.** One object, one wiring
+   point. `Degradation.Err` deliberately never becomes a metric attribute —
+   unbounded strings are how a backend gets a cardinality explosion.
+
+4. **"Semantic dedup" was delivered as *lexical* dedup and renamed.** Shingled
+   Jaccard catches copies, not paraphrases. Shipping it under "semantic" would
+   have claimed something the code does not do.
+
+5. **`CodeCompressor` replaced a no-op stub.** The signature is unchanged so
+   nothing fails to compile, but a registered compressor now actually claims Go
+   chunks. Callers who registered it to pin ordering — as the stub's own docs
+   suggested — will see behaviour change.
+
+6. **Bedrock was dropped from Phase 8 rather than half-built.** SigV4 needs the
+   AWS SDK, which the stdlib-only core cannot take.
+
+7. **The module path is `.../tokipe` while the root package is `agentkit`.**
+   Legal Go, mildly surprising. Renaming the package touches every example and
+   doc; recorded in PLAN.md as a separate open decision.
+
+8. **The `v1.0.0` tag was moved.** The original pointed at a commit declaring
+   `module agentkit` — a path that no longer exists and would resolve for
+   nobody. It is preserved as `v1.0.0-agentkit-path`; `v1.0.0` now marks the
+   first release on the real path. Nothing was ever published, so no consumer
+   was affected.
+
+## 5. Bugs found and fixed during this delivery
+
+Listed because they show where the risk actually was, and because several were
+found by tests written specifically to doubt a claim rather than to confirm it.
+
+| Phase | Bug | How it was caught |
+|---|---|---|
+| 5 | `cmd.Wait()` called twice in CLI stream cleanup, masking the real exit status | Reading the cleanup path back |
+| 5 | Anthropic usage overwritten instead of merged — a later SSE frame zeroed an earlier one | Test asserting input *and* output tokens together |
+| 6 | A configured summariser could never fire: trimming left no headroom, so the summary was always rejected | Its own test failing |
+| 6 | The stage returned a copy, so the caller's pointer never saw the trim — the benchmark measured an untrimmed request while billing a trimmed one | Benchmark reporting 0 dropped while tokens fell 55% |
+| 6 | Benchmark arms briefly stopped recording identical content, inflating the headline 57.1% → 67.4% | Noticing the number improved for no reason |
+| 7 | `metrics.Or`'s safety wrapper hid every new optional interface, silently discarding all histograms, gauges and degradations | A test written to check exactly that |
+| 8 | Test-file string literals mangled by an escaping error during authoring | Compiler |
+
+## 6. Handover
+
+- [ ] Independent QA — see [QA-BRIEF.md](QA-BRIEF.md), which now covers this
+      delivery's areas as well as Delivery 1's
+- [ ] Decide whether the root package should be renamed `tokipe`
+- [ ] Push to `github.com/JMjirapat/tokipe` (remote configured, nothing pushed)
+- [ ] Run the Anthropic prompt-caching test once API credit exists
+- [ ] Let the pgvector CI job run for the first time
