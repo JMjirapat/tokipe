@@ -137,6 +137,20 @@ The CLI backend exists because API credit and a subscription are different
 products. If you have a Claude Pro, Codex, or OpenCode plan and no API key, the
 CLI is a real backend, not a workaround.
 
+All three presets are verified against live binaries, not just documentation:
+
+| Preset | Verified against | Prompt via | Reports usage | Reports model |
+|---|---|---|---|---|
+| `ClaudePreset` | claude 2.1.217 | stdin | yes | yes |
+| `CodexPreset` | codex-cli 0.144.4 | stdin | yes | no |
+| `OpenCodePreset` | opencode 1.17.20 | argv | no | no |
+
+`CodexPreset` needs a working directory inside a git repository — Codex refuses
+untrusted directories, and the preset does not pass `--skip-git-repo-check` for
+you, because disabling someone else's safety guard should be a deliberate act.
+
+Re-verify any time with `AGENTKIT_CLI_LIVE=1 go test -run TestLiveCLIs -v ./providers/cli/`.
+
 **What the CLI backend cannot do:** a CLI builds its own prompt scaffold and
 exposes no `cache_control` hooks, so `Request.CacheBreakpoints` are ignored
 rather than mistranslated, and the `Usage` it reports describes the CLI's

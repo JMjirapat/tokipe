@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -50,10 +51,17 @@ func TestMain(m *testing.M) {
 		fmt.Print(`{"type":"result","subtype":"error_max_turns","is_error":true,"result":"ran out of turns"}`)
 
 	case "codex_jsonl":
-		fmt.Println(`{"type":"item.started","text":""}`)
-		fmt.Println(`not json at all`)
-		fmt.Println(`{"type":"item.completed","text":"first"}`)
-		fmt.Println(`{"type":"item.completed","text":"final answer","usage":{"input_tokens":10,"output_tokens":3,"cached_input_tokens":7}}`)
+		// The real codex-cli 0.144.x stream, plus a line of log noise.
+		fmt.Println(`{"type":"thread.started","thread_id":"019f9d29"}`)
+		fmt.Println(`ERROR codex_models_manager::cache: failed to load models cache`)
+		fmt.Println(`{"type":"turn.started"}`)
+		fmt.Println(`{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"first"}}`)
+		fmt.Println(`{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"final answer"}}`)
+		fmt.Println(`{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":7,"output_tokens":3}}`)
+
+	case "codex_no_message":
+		fmt.Println(`{"type":"thread.started","thread_id":"x"}`)
+		fmt.Println(`{"type":"turn.completed","usage":{"input_tokens":1}}`)
 
 	case "fail":
 		fmt.Fprintln(os.Stderr, "something broke")
@@ -330,5 +338,52 @@ func TestRenderPromptIgnoresMalformedToolResults(t *testing.T) {
 
 	if got := cli.RenderPrompt(req); got != "q" {
 		t.Errorf("a malformed results value must be skipped, got %q", got)
+	}
+}
+
+func TestCodexParserErrorsWhenNoAgentMessage(t *testing.T) {
+	cfg := helperConfig(t, "codex_no_message")
+	cfg.Parse = cli.CodexJSONLParser
+
+	_, err := mustClient(t, cfg).Send(context.Background(), &pipeline.Request{Query: "ping"})
+	if err == nil {
+		t.Fatal("a stream with events but no agent message must be an error, not empty content")
+	}
+	if !strings.Contains(err.Error(), "no agent message") {
+		t.Errorf("error should say what was missing, got: %v", err)
+	}
+}
+
+func TestPresetsAreWiredToTheRightParsers(t *testing.T) {
+	cases := []struct {
+		name    string
+		cfg     cli.Config
+		command string
+		wantArg string
+	}{
+		{"claude", cli.ClaudePreset(""), "claude", "--output-format"},
+		{"codex", cli.CodexPreset(""), "codex", "--json"},
+		{"opencode", cli.OpenCodePreset("", "anthropic/claude-sonnet-4-6"), "opencode", "--model"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.cfg.Command != tc.command {
+				t.Errorf("Command = %q, want %q", tc.cfg.Command, tc.command)
+			}
+			if !slices.Contains(tc.cfg.Args, tc.wantArg) {
+				t.Errorf("Args %v missing %q", tc.cfg.Args, tc.wantArg)
+			}
+			if tc.cfg.Parse == nil {
+				t.Error("preset must set a Parser")
+			}
+		})
+	}
+
+	// opencode takes the prompt as an argument, the other two via stdin.
+	if cli.OpenCodePreset("", "").PromptMode != cli.PromptAsArg {
+		t.Error("opencode preset should pass the prompt as an argument")
+	}
+	if cli.ClaudePreset("").PromptMode != cli.PromptViaStdin {
+		t.Error("claude preset should pass the prompt via stdin")
 	}
 }
