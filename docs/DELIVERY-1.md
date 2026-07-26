@@ -223,24 +223,25 @@ Reproduce all of this from a clean checkout:
 go build ./... && go vet ./... && go test -race ./...
 ```
 
-The test inventory below is **machine-checked**. It went stale twice — QA
-rounds 1 and 5, both Blockers — because a hand-maintained number cannot stay
-true across rounds of new regression tests. `inventory_test.go` now parses the
-markers in this section and fails the build when they drift, so this table
-cannot silently rot again.
+These figures are **frozen as of tag `v1.0.0` (`d6f6429`)**. They are a
+historical record of what shipped, not a description of the current tree — the
+tree has moved on (Phase 5 and beyond), and a delivery record that silently
+tracked HEAD would stop being evidence of anything.
 
-<!-- inventory:test-funcs=228 -->
-<!-- inventory:packages=25 -->
+The *live* inventory is machine-checked instead, in README §Verify the checkout.
+That is where `inventory_test.go` reads its markers. Two rounds of QA Blockers
+came from a hand-maintained count going stale; the lesson was that such a claim
+must be enforced, and the corollary — learned here, when the guard failed the
+build after Phase 5 — is that it must be enforced against a document that is
+*supposed* to describe the present.
+
+At `v1.0.0`:
 
 | Quantity | Value | Command |
 |---|---|---|
-| Test/Example functions | **228** | `grep -rhoE '^func (Test\|Example)[A-Za-z0-9_]*' --include='*_test.go' . \| wc -l` |
-| Packages in the root module | **25** | `go list ./... \| wc -l` |
-| Failures | **0** | `go test -race -count=1 ./...` |
-
-The run-event total (subtests included) is deliberately not pinned here:
-checking it would mean running the whole suite from inside the suite. Get it
-with `go test -race -json -count=1 ./... \| grep -c '"Action":"run"'`.
+| Test/Example functions | 228 | `grep -rhoE '^func (Test\|Example)[A-Za-z0-9_]*' --include='*_test.go' . \| wc -l` |
+| Packages in the root module | 25 | `go list ./... \| wc -l` |
+| Failures | 0 | `go test -race -count=1 ./...` |
 
 | Claim | Evidence | Result |
 |---|---|---|

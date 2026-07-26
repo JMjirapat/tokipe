@@ -94,6 +94,16 @@ type Config struct {
 	// Render flattens the Request into a prompt. Defaults to RenderPrompt.
 	Render Renderer
 
+	// StreamParse converts one stdout line into deltas, enabling SendStream to
+	// deliver text incrementally. Optional: without it SendStream still works,
+	// but buffers the whole answer and yields it as a single delta.
+	//
+	// It is deliberately not defaulted. Parse is about the *final* output shape
+	// and StreamParse about the *incremental* one; they differ per CLI, and
+	// guessing wrong means showing users a CLI's protocol chatter as if it were
+	// the answer.
+	StreamParse StreamParser
+
 	// Dir is the subprocess working directory. Empty means the current one.
 	//
 	// This matters more than it looks: coding-agent CLIs read the directory
@@ -173,16 +183,9 @@ func (c *Client) Send(ctx context.Context, req *pipeline.Request) (*pipeline.Res
 
 	prompt := c.cfg.Render(req)
 
-	args := c.cfg.Args
-	if c.cfg.PromptMode == PromptAsArg {
-		args = make([]string, len(c.cfg.Args))
-		for i, a := range c.cfg.Args {
-			args[i] = strings.ReplaceAll(a, PromptPlaceholder, prompt)
-		}
-	}
-
 	// exec.CommandContext, not a shell: the prompt is data, never syntax.
-	cmd := exec.CommandContext(ctx, c.cfg.Command, args...)
+	// argv is shared with SendStream so the two cannot diverge on assembly.
+	cmd := exec.CommandContext(ctx, c.cfg.Command, c.argv(prompt)...)
 	cmd.Dir = c.cfg.Dir
 	cmd.Env = c.cfg.Env
 	if c.cfg.PromptMode == PromptViaStdin {

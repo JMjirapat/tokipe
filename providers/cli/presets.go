@@ -208,3 +208,48 @@ func OpenCodePreset(dir, model string) Config {
 		ClientName: name,
 	}
 }
+
+// --- streaming presets ------------------------------------------------------
+
+// ClaudeStreamPreset is ClaudePreset with incremental output enabled.
+//
+// It requests `--output-format stream-json`, which emits one JSON object per
+// line as the answer is produced, and `--verbose`, which Claude Code requires
+// alongside stream-json in print mode. Parse is still ClaudeJSONParser so a
+// plain Send on the same client keeps working.
+func ClaudeStreamPreset(dir string) Config {
+	cfg := ClaudePreset(dir)
+	cfg.Args = []string{"-p", "--output-format", "stream-json", "--verbose"}
+	cfg.StreamParse = ClaudeStreamParser()
+	cfg.ClientName = "claude-cli-stream"
+	return cfg
+}
+
+// CodexStreamPreset is CodexPreset with incremental output enabled. Codex's
+// `exec --json` already streams events, so only the parser changes.
+//
+// The same directory restriction applies as for CodexPreset: Codex refuses to
+// run outside a trusted directory.
+func CodexStreamPreset(dir string) Config {
+	cfg := CodexPreset(dir)
+	cfg.StreamParse = CodexStreamParser()
+	cfg.ClientName = "codex-cli-stream"
+	return cfg
+}
+
+// OpenCodeStreamPreset is OpenCodePreset reading stdout line by line.
+//
+// OpenCode prints prose with no envelope, so every line is answer text. That
+// makes the increments coarser than the other two — a line at a time rather
+// than a token at a time — which is the honest limit of what its output shape
+// allows, not something this adapter can improve on.
+func OpenCodeStreamPreset(dir, model string) Config {
+	cfg := OpenCodePreset(dir, model)
+	cfg.StreamParse = LineStreamParser()
+	if model != "" {
+		cfg.ClientName = "opencode-stream:" + model
+	} else {
+		cfg.ClientName = "opencode-cli-stream"
+	}
+	return cfg
+}

@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="High-level architecture and operating summary for agentkit.">
+  <title>agentkit · System Summary</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17231f;
+      --muted: #5f6f68;
+      --paper: #f3f1e8;
+      --surface: rgba(255, 255, 255, .76);
+      --surface-solid: #fffef9;
+      --line: #d9dbd0;
+      --green: #155e4b;
+      --green-2: #0d8a69;
+      --mint: #d9eee5;
+      --amber: #d77c2f;
+      --amber-soft: #f7e5d1;
+      --blue: #346a85;
+      --blue-soft: #dfeef3;
+      --shadow: 0 18px 48px rgba(40, 52, 47, .10);
+      --radius: 22px;
+      --max: 1180px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      background: var(--paper);
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 8% 4%, rgba(21, 94, 75, .12), transparent 28rem),
+        radial-gradient(circle at 92% 18%, rgba(215, 124, 47, .13), transparent 26rem),
+        var(--paper);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+
+    a { color: inherit; }
+
+    .shell {
+      width: min(calc(100% - 40px), var(--max));
+      margin: 0 auto;
+    }
+
+    .topbar {
+      position: sticky;
+      z-index: 20;
+      top: 0;
+      border-bottom: 1px solid rgba(217, 219, 208, .8);
+      background: rgba(243, 241, 232, .88);
+      backdrop-filter: blur(16px);
+    }
+
+    .nav {
+      min-height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      text-decoration: none;
+      font-weight: 790;
+      letter-spacing: -.02em;
+    }
+
+    .mark {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      color: white;
+      border-radius: 11px;
+      background: var(--green);
+      box-shadow: 0 8px 18px rgba(21, 94, 75, .2);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 14px;
+    }
+
+    .navlinks {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 650;
+    }
+
+    .navlinks a {
+      text-decoration: none;
+    }
+
+    .navlinks a:hover,
+    .navlinks a:focus-visible {
+      color: var(--green);
+    }
+
+    .hero {
+      padding: 82px 0 54px;
+      display: grid;
+      grid-template-columns: 1.25fr .75fr;
+      gap: 54px;
+      align-items: end;
+    }
+
+    .eyebrow {
+      margin: 0 0 18px;
+      color: var(--green);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 820px;
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(48px, 7.4vw, 92px);
+      font-weight: 500;
+      letter-spacing: -.055em;
+      line-height: .98;
+    }
+
+    h1 span {
+      color: var(--green);
+      font-style: italic;
+    }
+
+    .lede {
+      max-width: 720px;
+      margin: 26px 0 0;
+      color: var(--muted);
+      font-size: clamp(18px, 2vw, 22px);
+      line-height: 1.5;
+    }
+
+    .hero-note {
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .hero-note strong {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--green);
+      font-size: 14px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .hero-note p { margin: 0; color: var(--muted); }
+
+    .metrics {
+      padding: 18px 0 72px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+    }
+
+    .metric {
+      min-height: 150px;
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--surface);
+    }
+
+    .metric b {
+      display: block;
+      color: var(--green);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 38px;
+      font-weight: 500;
+      letter-spacing: -.04em;
+    }
+
+    .metric span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    section {
+      padding: 68px 0;
+      scroll-margin-top: 76px;
+    }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: .55fr 1fr;
+      gap: 40px;
+      align-items: start;
+      margin-bottom: 34px;
+    }
+
+    .kicker {
+      color: var(--green);
+      font: 750 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    h2 {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(34px, 4vw, 52px);
+      font-weight: 500;
+      letter-spacing: -.035em;
+      line-height: 1.08;
+    }
+
+    .section-head p {
+      margin: 12px 0 0;
+      max-width: 740px;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .flow-wrap {
+      padding: 30px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-solid);
+      box-shadow: var(--shadow);
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(9, minmax(112px, 1fr));
+      gap: 10px;
+      min-width: 1040px;
+      align-items: stretch;
+    }
+
+    .step {
+      position: relative;
+      min-height: 148px;
+      padding: 16px 14px;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      background: #fbfaf5;
+    }
+
+    .step:not(:last-child)::after {
+      position: absolute;
+      z-index: 2;
+      top: 50%;
+      right: -14px;
+      width: 18px;
+      height: 18px;
+      display: grid;
+      place-items: center;
+      color: var(--green);
+      background: var(--surface-solid);
+      content: "→";
+      font-weight: 900;
+      transform: translateY(-50%);
+    }
+
+    .step .num {
+      display: block;
+      margin-bottom: 20px;
+      color: var(--green-2);
+      font: 700 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .step b { display: block; font-size: 15px; line-height: 1.25; }
+    .step small { display: block; margin-top: 8px; color: var(--muted); line-height: 1.35; }
+    .step.accent { border-color: rgba(21, 94, 75, .34); background: var(--mint); }
+    .step.final { border-color: rgba(215, 124, 47, .4); background: var(--amber-soft); }
+
+    .legend {
+      display: flex;
+      gap: 24px;
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .legend span::before {
+      width: 9px;
+      height: 9px;
+      display: inline-block;
+      margin-right: 7px;
+      border-radius: 50%;
+      background: var(--mint);
+      content: "";
+    }
+
+    .legend span:last-child::before { background: var(--amber-soft); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+    }
+
+    .card {
+      min-height: 224px;
+      padding: 25px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--surface);
+    }
+
+    .card-icon {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 23px;
+      border-radius: 13px;
+      color: var(--green);
+      background: var(--mint);
+      font: 800 15px ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .card h3 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: -.015em;
+    }
+
+    .card p { margin: 9px 0 0; color: var(--muted); font-size: 15px; }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .panel {
+      padding: 30px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .panel h3 {
+      margin: 0 0 20px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 28px;
+      font-weight: 500;
+    }
+
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 122px 1fr;
+      gap: 18px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+    }
+
+    .row:first-child { padding-top: 0; border-top: 0; }
+    .row b { color: var(--green); font-size: 14px; }
+    .row span { color: var(--muted); font-size: 14px; }
+
+    .callout {
+      display: grid;
+      grid-template-columns: .7fr 1.3fr;
+      gap: 42px;
+      padding: 40px;
+      border-radius: var(--radius);
+      color: #edf7f2;
+      background: var(--green);
+      box-shadow: 0 22px 52px rgba(21, 94, 75, .22);
+    }
+
+    .callout h2 { color: white; }
+    .callout p { margin: 0; color: rgba(237, 247, 242, .78); }
+
+    .failure-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 22px;
+    }
+
+    .failure-item {
+      padding: 14px 16px;
+      border: 1px solid rgba(255, 255, 255, .16);
+      border-radius: 13px;
+      background: rgba(255, 255, 255, .07);
+      font-size: 14px;
+    }
+
+    .failure-item b { color: #fff; }
+
+    .boundary {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-solid);
+    }
+
+    .boundary > div {
+      min-height: 270px;
+      padding: 28px;
+      border-right: 1px solid var(--line);
+    }
+
+    .boundary > div:last-child { border-right: 0; }
+    .boundary h3 { margin: 0 0 10px; font-size: 18px; }
+    .boundary p { margin: 0; color: var(--muted); font-size: 15px; }
+    .boundary ul { padding-left: 18px; color: var(--muted); font-size: 14px; }
+    .boundary .core { background: rgba(217, 238, 229, .42); }
+    .boundary .adapter { background: rgba(223, 238, 243, .38); }
+    .boundary .caller { background: rgba(247, 229, 209, .38); }
+
+    .known {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    .known article {
+      padding: 22px;
+      border: 1px dashed #c8c8bb;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, .43);
+    }
+
+    .known h3 { margin: 0; font-size: 16px; }
+    .known p { margin: 7px 0 0; color: var(--muted); font-size: 14px; }
+
+    .cta {
+      padding: 54px;
+      border-radius: 28px;
+      text-align: center;
+      background: var(--amber-soft);
+    }
+
+    .cta h2 { max-width: 720px; margin: 0 auto; }
+    .cta p { max-width: 700px; margin: 16px auto 26px; color: var(--muted); }
+
+    .buttons {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      min-height: 45px;
+      padding: 0 18px;
+      border: 1px solid var(--green);
+      border-radius: 999px;
+      color: white;
+      background: var(--green);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 750;
+    }
+
+    .button.secondary { color: var(--green); background: transparent; }
+
+    footer {
+      padding: 42px 0 56px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    footer .shell {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+    }
+
+    @media (max-width: 900px) {
+      .navlinks a:not(:last-child) { display: none; }
+      .hero, .section-head, .callout { grid-template-columns: 1fr; }
+      .hero { padding-top: 58px; }
+      .metrics { grid-template-columns: 1fr 1fr; }
+      .grid { grid-template-columns: 1fr 1fr; }
+      .boundary { grid-template-columns: 1fr; }
+      .boundary > div { min-height: 0; border-right: 0; border-bottom: 1px solid var(--line); }
+      .boundary > div:last-child { border-bottom: 0; }
+      .known { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 640px) {
+      .shell { width: min(calc(100% - 24px), var(--max)); }
+      .nav { min-height: 60px; }
+      h1 { font-size: clamp(43px, 16vw, 64px); }
+      .hero { gap: 28px; padding: 44px 0 34px; }
+      .metrics, .grid, .two-col, .failure-list { grid-template-columns: 1fr; }
+      .metric { min-height: 118px; }
+      section { padding: 48px 0; }
+      .flow-wrap { padding: 18px; }
+      .panel, .callout { padding: 24px; }
+      .row { grid-template-columns: 1fr; gap: 3px; }
+      .cta { padding: 38px 22px; }
+      footer .shell { display: block; }
+    }
+
+    @media print {
+      .topbar { position: static; }
+      body { background: white; }
+      .hero { padding-top: 40px; }
+      section { break-inside: avoid; }
+      .flow-wrap { overflow: visible; }
+      .flow { min-width: 0; grid-template-columns: repeat(3, 1fr); }
+      .step::after { display: none !important; }
+      .card, .panel, .flow-wrap, .metric { box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <nav class="shell nav" aria-label="Primary navigation">
+      <a class="brand" href="#top">
+        <span class="mark">ak</span>
+        <span>agentkit</span>
+      </a>
+      <div class="navlinks">
+        <a href="#flow">Flow</a>
+        <a href="#capabilities">Capabilities</a>
+        <a href="#contracts">Contracts</a>
+        <a href="../MANUAL.md">User manual ↗</a>
+      </div>
+    </nav>
+  </header>
+
+  <main id="top">
+    <div class="shell hero">
+      <div>
+        <p class="eyebrow">High-level system summary · v1</p>
+        <h1>Spend model tokens where they <span>matter.</span></h1>
+        <p class="lede">
+          agentkit is an ordered Go pipeline that removes avoidable LLM work,
+          shapes context for reuse, and chooses the right model—without becoming
+          another service to operate.
+        </p>
+      </div>
+      <aside class="hero-note" aria-label="System principle">
+        <strong>Core principle</strong>
+        <p>
+          Optimizations are optional and fail open. If an optimization breaks,
+          the request should still reach a usable model path.
+        </p>
+      </aside>
+    </div>
+
+    <div class="shell metrics" aria-label="System facts">
+      <article class="metric">
+        <b>57.1%</b>
+        <span>input-token reduction on the documented synthetic benchmark</span>
+      </article>
+      <article class="metric">
+        <b>0</b>
+        <span>third-party dependencies in the root Go module</span>
+      </article>
+      <article class="metric">
+        <b>8</b>
+        <span>ordered decisions from deterministic handling to model send</span>
+      </article>
+      <article class="metric">
+        <b>opt-in</b>
+        <span>every optimization, including metrics and routing</span>
+      </article>
+    </div>
+
+    <section id="flow">
+      <div class="shell">
+        <div class="section-head">
+          <div class="kicker">01 · Request lifecycle</div>
+          <div>
+            <h2>One request, progressively less waste.</h2>
+            <p>
+              The caller supplies a request and a default model. Each enabled
+              capability gets one deliberate opportunity to reduce work before
+              the final provider call.
+            </p>
+          </div>
+        </div>
+
+        <div class="flow-wrap" role="region" aria-label="Pipeline flow" tabindex="0">
+          <div class="flow">
+            <div class="step accent">
+              <span class="num">01</span>
+              <b>Preprocess</b>
+              <small>Answer known deterministic cases; stop here.</small>
+            </div>
+            <div class="step">
+              <span class="num">02</span>
+              <b>Tool cache</b>
+              <small>Reuse repeatable tool results; execute misses.</small>
+            </div>
+            <div class="step">
+              <span class="num">03</span>
+              <b>RAG</b>
+              <small>Embed the query and retrieve top-K evidence.</small>
+            </div>
+            <div class="step">
+              <span class="num">04</span>
+              <b>Compress</b>
+              <small>Remove representational noise from retrieved chunks.</small>
+            </div>
+            <div class="step">
+              <span class="num">05</span>
+              <b>Custom</b>
+              <small>Run caller-specific request shaping.</small>
+            </div>
+            <div class="step">
+              <span class="num">06</span>
+              <b>Align</b>
+              <small>Place stable content first and safe breakpoints.</small>
+            </div>
+            <div class="step">
+              <span class="num">07</span>
+              <b>Route</b>
+              <small>Score the final prompt; select the cheapest fit.</small>
+            </div>
+            <div class="step final">
+              <span class="num">08</span>
+              <b>Model send</b>
+              <small>Call an API, CLI, or custom backend.</small>
+            </div>
+            <div class="step final">
+              <span class="num">09</span>
+              <b>Response</b>
+              <small>Return content, model, short-circuit, and usage.</small>
+            </div>
+          </div>
+          <div class="legend">
+            <span>Can avoid the model entirely</span>
+            <span>Provider boundary</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="capabilities">
+      <div class="shell">
+        <div class="section-head">
+          <div class="kicker">02 · Capabilities</div>
+          <div>
+            <h2>Nine levers, one stable integration.</h2>
+            <p>
+              Applications keep building the same `pipeline.Request`. Cost and
+              latency policy lives in composable options, not scattered
+              conditionals across business code.
+            </p>
+          </div>
+        </div>
+
+        <div class="grid">
+          <article class="card">
+            <div class="card-icon">∅</div>
+            <h3>Avoid calls</h3>
+            <p>Preprocess rules return deterministic answers in-process, without spending tokens or launching a CLI.</p>
+          </article>
+          <article class="card">
+            <div class="card-icon">↻</div>
+            <h3>Avoid repeated work</h3>
+            <p>Tool caching hashes name and arguments, reuses safe results, and coalesces concurrent identical misses.</p>
+          </article>
+          <article class="card">
+            <div class="card-icon">R</div>
+            <h3>Retrieve selectively</h3>
+            <p>RAG runs only when the request opts in, adding top-K evidence through small embedder and store interfaces.</p>
+          </article>
+          <article class="card">
+            <div class="card-icon">≪</div>
+            <h3>Shrink safely</h3>
+            <p>Compression minifies JSON and normalizes prose whitespace without semantic summarization.</p>
+          </article>
+          <article class="card">
+            <div class="card-icon">▰</div>
+            <h3>Reuse prefixes</h3>
+            <p>Cache alignment separates invariant instructions from history and per-turn evidence.</p>
+          </article>
+          <article class="card">
+            <div class="card-icon">⇄</div>
+            <h3>Route by complexity</h3>
+            <p>A deterministic score over length, code density, and chunks selects a model tier after shaping finishes.</p>
+          </article>
+          <article class="card">
+            <div class="card-icon">⋯</div>
+            <h3>Stream optionally</h3>
+            <p>Providers may emit incremental deltas; ordinary clients and deterministic answers remain compatible as one-delta streams.</p>
+          </article>
+          <article class="card">
+            <div class="card-icon">↧</div>
+            <h3>Load on demand</h3>
+            <p>Protected references keep large files out of prompts until the application explicitly resolves them.</p>
+          </article>
+          <article class="card">
+            <div class="card-icon">◎</div>
+            <h3>Observe and budget</h3>
+            <p>Optional counters expose decisions, while caller-owned turn policy sets context budgets by task type.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="shell">
+        <div class="section-head">
+          <div class="kicker">03 · Inputs & outputs</div>
+          <div>
+            <h2>A small contract across every provider.</h2>
+            <p>
+              Provider-specific translation stays at the edge. The core only
+              needs the request, response, model client, stage, and router
+              contracts.
+            </p>
+          </div>
+        </div>
+
+        <div class="two-col">
+          <article class="panel">
+            <h3>Request carries</h3>
+            <div class="stack">
+              <div class="row"><b>Conversation</b><span>Query plus ordered messages and static markers</span></div>
+              <div class="row"><b>Work</b><span>Optional tool calls and retrieval signal</span></div>
+              <div class="row"><b>Context</b><span>Retrieved chunks and turn classification</span></div>
+              <div class="row"><b>Coordination</b><span>Cache breakpoints and namespaced metadata</span></div>
+            </div>
+          </article>
+          <article class="panel">
+            <h3>Response reports</h3>
+            <div class="stack">
+              <div class="row"><b>Content</b><span>The final answer</span></div>
+              <div class="row"><b>Model</b><span>The backend that produced it</span></div>
+              <div class="row"><b>Short circuit</b><span>Whether a rule avoided the model</span></div>
+              <div class="row"><b>Usage</b><span>Input, output, cache-read, and cache-write tokens</span></div>
+              <div class="row"><b>Delivery</b><span>Completed response or optional incremental deltas</span></div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="contracts">
+      <div class="shell">
+        <div class="callout">
+          <div>
+            <div class="kicker" style="color:#aee8d3">04 · Failure model</div>
+            <h2>Optimizations fail open.</h2>
+          </div>
+          <div>
+            <p>
+              Optional infrastructure should not turn a viable model request
+              into an outage. Built-in extension calls are guarded, while
+              cancellation and the final model error remain visible.
+            </p>
+            <div class="failure-list">
+              <div class="failure-item"><b>Cache down?</b> Treat as a miss.</div>
+              <div class="failure-item"><b>RAG down?</b> Continue without chunks.</div>
+              <div class="failure-item"><b>Compression fails?</b> Keep original text.</div>
+              <div class="failure-item"><b>Router fails?</b> Use the default model.</div>
+              <div class="failure-item"><b>Metrics fail?</b> Drop diagnostics only.</div>
+              <div class="failure-item"><b>Model fails?</b> Return the error.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="shell">
+        <div class="section-head">
+          <div class="kicker">05 · Ownership</div>
+          <div>
+            <h2>Clear boundaries keep the core portable.</h2>
+            <p>
+              The root module remains standard-library-only. Infrastructure
+              drivers and application-specific policy stay outside the core.
+            </p>
+          </div>
+        </div>
+
+        <div class="boundary">
+          <div class="core">
+            <h3>agentkit core</h3>
+            <p>Owns ordering, request flow, safe defaults, and stable interfaces.</p>
+            <ul>
+              <li>pipeline and config</li>
+              <li>preprocess and compression</li>
+              <li>cache alignment and routing</li>
+              <li>metrics contracts</li>
+            </ul>
+          </div>
+          <div class="adapter">
+            <h3>Adapters</h3>
+            <p>Translate small interfaces into real infrastructure and model calls.</p>
+            <ul>
+              <li>Anthropic over net/http</li>
+              <li>Claude, Codex, OpenCode CLIs</li>
+              <li>pgvector nested module</li>
+              <li>Redis nested module</li>
+            </ul>
+          </div>
+          <div class="caller">
+            <h3>Your application</h3>
+            <p>Owns product policy, authorization, quality, and irreversible actions.</p>
+            <ul>
+              <li>tool execution and cache safety</li>
+              <li>embedding implementation</li>
+              <li>turn budgets and lazy-load tools</li>
+              <li>timeouts, retries, and rollout</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="shell">
+        <div class="section-head">
+          <div class="kicker">06 · Known boundaries</div>
+          <div>
+            <h2>Proven locally; validate externally.</h2>
+            <p>
+              The implementation and synthetic benchmark are strongly tested.
+              These environment-dependent outcomes remain deployment checks.
+            </p>
+          </div>
+        </div>
+        <div class="known">
+          <article>
+            <h3>Provider economics</h3>
+            <p>Confirm cache hits, usage accounting, latency, and pricing against the real chosen provider.</p>
+          </article>
+          <article>
+            <h3>Infrastructure integration</h3>
+            <p>Run pgvector and Redis adapters against production-equivalent schema, indexes, networking, and failure modes.</p>
+          </article>
+          <article>
+            <h3>Task quality</h3>
+            <p>Evaluate compression, retrieval top-K, routing thresholds, and budgets on representative user tasks.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="shell cta">
+        <h2>Start pass-through. Add one measurable optimization at a time.</h2>
+        <p>
+          The quickest safe path is baseline → metrics → deterministic rules →
+          tool cache → retrieval/compression → cache alignment → routing.
+        </p>
+        <div class="buttons">
+          <a class="button" href="../README.md">Quick start</a>
+          <a class="button secondary" href="../MANUAL.md">Open user manual</a>
+          <a class="button secondary" href="./QA-REPORT.md">Read QA report</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="shell">
+      <span>agentkit · High-level system summary</span>
+      <span>Generated from the v1 implementation · 2026-07-26</span>
+    </div>
+  </footer>
+</body>
+</html>

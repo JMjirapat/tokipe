@@ -6,11 +6,7 @@
 // dependencies. See docs/spec.md §2.3.
 package pipeline
 
-import (
-	"context"
-
-	"agentkit/internal/safe"
-)
+import "context"
 
 // Request flows through every stage. Stages read and mutate fields relevant
 // to their job and pass the (possibly modified) Request to the next stage.
@@ -188,48 +184,23 @@ func NewWithRouter(fallback ModelClient, router Router, stages ...Stage) *Pipeli
 	return &Pipeline{stages: stages, client: fallback, router: router}
 }
 
+// Run executes every stage in order, then performs the final model call.
+//
+// The stage loop, short-circuit handling and routing all live in prepare, which
+// RunStream shares. Keeping one copy is deliberate: duplicated, the streaming
+// path could silently drift out of step with this one, and that is a bug class
+// better designed out than tested for.
+//
+// NOTE: a panic from Stage.Process is deliberately NOT recovered; see the Stage
+// docs. Name() is guarded, because a broken name must never destroy an error
+// Process already returned.
 func (p *Pipeline) Run(ctx context.Context, req *Request) (*Response, error) {
-	for _, stage := range p.stages {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		// NOTE: a panic from Process is deliberately NOT recovered. See the
-		// Stage docs: a caller-supplied stage is the caller's own code, and
-		// swallowing its panic would hide their bug. Name(), however, is
-		// guarded — a broken name must never destroy an error Process already
-		// returned, which is a different failure entirely.
-		next, err := stage.Process(ctx, req)
-		if err != nil {
-			return nil, &StageError{Stage: safe.Name(stage.Name, UnnamedStage), Err: err}
-		}
-		if next != nil {
-			req = next
-		}
-		if v, ok := req.Metadata[MetaShortCircuit]; ok {
-			resp, ok := v.(*Response)
-			if !ok {
-				return nil, &StageError{Stage: safe.Name(stage.Name, UnnamedStage), Err: errBadShortCircuit}
-			}
-			return resp, nil
-		}
+	req, resp, client, err := p.prepare(ctx, req)
+	if err != nil {
+		return nil, err
 	}
-
-	// Routing is an optimization like any other: a Router that panics must
-	// cost us the routing decision, not the turn. It falls back to the
-	// pipeline's default client, exactly as a nil decision does.
-	client := p.client
-	if p.router != nil {
-		d, err := safe.Value(func() (RouteDecision, error) {
-			return p.router.Route(ctx, req), nil
-		})
-		switch {
-		case err != nil:
-			req.SetMeta("router.reason", "router_panicked")
-		case d.Client != nil:
-			client = d.Client
-			req.SetMeta("router.reason", d.Reason)
-			req.SetMeta("router.client", safe.Name(d.Client.Name, UnnamedClient))
-		}
+	if resp != nil {
+		return resp, nil // a stage answered; no model call is due
 	}
 	return client.Send(ctx, req)
 }

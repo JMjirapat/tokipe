@@ -1,266 +1,348 @@
 # agentkit
 
-A Go library that cuts the input-token cost of LLM calls. It sits between your
-code and your model provider as an ordered pipeline of optimizations: answer
-deterministically when you can, reuse tool results, retrieve and compress
-context, keep the prompt prefix stable so provider-side caching actually hits,
-and route cheap work to a cheap model.
+`agentkit` is a Go library for reducing the input-token cost and latency of
+LLM-powered applications. It runs an ordered, opt-in pipeline before the final
+model call:
 
-It is a library, not a service. No hosted component, no UI, no ML model, no
-required provider.
-
-```bash
-go get agentkit
+```text
+request
+  → deterministic preprocess
+  → tool-result cache
+  → retrieval (RAG)
+  → safe compression
+  → custom stages
+  → prompt-cache alignment
+  → model routing
+  → response
 ```
 
-## Quickstart
+It is a library, not a hosted service. The core module uses only the Go
+standard library, keeps no global state, and works with API or CLI model
+backends.
+
+## Start here
+
+- [Full user manual](MANUAL.md)
+- [High-level system summary](docs/system-summary.html)
+- [Runnable examples](examples)
+- [Delivery evidence](docs/DELIVERY-1.md)
+
+Requirements: Go 1.23 or newer.
+
+> **Module path:** this source tree currently declares `module agentkit` and
+> has no published remote module URL. Code inside this repository imports it
+> directly. An external application can use a temporary `replace` directive
+> until the project is published:
+>
+> ```go
+> require agentkit v0.0.0
+> replace agentkit => ../tokipe
+> ```
+
+## 60-second quick start
+
+This example uses the included mock model, so it needs no key or network:
 
 ```go
-client, _ := anthropic.New(anthropic.Config{APIKey: os.Getenv("ANTHROPIC_API_KEY")})
+package main
 
-kit := agentkit.New(client,
-    config.WithPreprocess(myRules...),                 // skip the LLM entirely
-    config.WithToolCache(toolcache.NewMemoryCache(), myExecutor, time.Hour),
-    config.WithRAG(embedder, store, 5),                // retrieve
-    config.WithDefaultCompression(),                   // shrink what you retrieved
-    config.WithCacheAlignment(),                       // keep the prefix cacheable
-    config.WithRouter(router.NewHeuristicRouter(
-        router.Tier{Client: cheap,  MaxComplexity: 0.35},
-        router.Tier{Client: strong, MaxComplexity: 1.0},
-    )),
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"agentkit"
+	"agentkit/pipeline"
+	"agentkit/providers/mock"
+)
+
+func main() {
+	client := mock.New("demo-model", "Hello from agentkit")
+	kit := agentkit.New(client) // no options = pass-through
+
+	resp, err := kit.Run(context.Background(), &pipeline.Request{
+		Query: "Say hello",
+		Messages: []pipeline.Message{
+			{Role: "system", Content: "Answer briefly.", Static: true},
+		},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(resp.Content)
+}
+```
+
+For a useful production pipeline, enable only the capabilities you need:
+
+```go
+kit := agentkit.New(defaultClient,
+	config.WithMetrics(recorder),
+	config.WithPreprocess(rules...),
+	config.WithToolCache(toolcache.NewMemoryCache(), executeTool, 30*time.Minute),
+	config.WithRAG(embedder, vectorStore, 5),
+	config.WithDefaultCompression(),
+	config.WithCacheAlignment(),
+	config.WithRouter(router.NewHeuristicRouter(
+		router.Tier{Client: cheapClient, MaxComplexity: 0.35},
+		router.Tier{Client: strongClient, MaxComplexity: 1.00},
+	)),
 )
 
 resp, err := kit.Run(ctx, &pipeline.Request{
-    Query:          "Why did the deploy fail?",
-    Messages:       history,
-    NeedsRetrieval: true,
+	Query:          "Why did the deployment fail?",
+	Messages:       history,
+	NeedsRetrieval: true,
 })
 ```
 
-Every option is opt-in. `agentkit.New(client)` with no options is a
-pass-through pipeline — useful as the baseline you measure against.
+Every option is independent. `agentkit.New(client)` is a valid pass-through
+baseline and is the right starting point for measuring savings.
 
-## Architecture
+## Choose a model backend
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Caller (any Go service)                     │
-└──────────────────────────────┬───────────────────────────────────┘
-                               │  agentkit.Request
-                               ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                         agentkit.Pipeline                        │
-│  ┌──────────┐ ┌───────────┐ ┌─────┐ ┌──────────┐ ┌────────────┐  │
-│  │Preprocess│→│ ToolCache │→│ RAG │→│ Compress │→│ LazyLoad   │→ │
-│  └──────────┘ └───────────┘ └─────┘ └──────────┘ └────────────┘  │
-│  ┌────────────┐ ┌────────┐ ┌────────┐                            │
-│ →│ CacheAlign │→│ Router │→│ Budget │→ (call ModelClient.Send)    │
-│  └────────────┘ └────────┘ └────────┘                            │
-└──────────────────────────────┬───────────────────────────────────┘
-                               │  agentkit.Response
-                               ▼
-                      Caller receives result
-```
-
-Each box is a `Stage`: one method, `Process(ctx, *Request) (*Request, error)`.
-There is no hidden control flow — stages run in order, and `PreprocessStage`
-is the only one that may short-circuit.
-
-### The ordering is not a preference
-
-Retrieval must run before compression, and both must run before cache
-alignment. A cache breakpoint anchored after content that changes every turn
-invalidates the cached prefix on every single call — which is worse than not
-caching at all. `config` owns that ordering so callers cannot get it wrong;
-`config.WithStage` appends custom stages *before* alignment for the same
-reason. If you need a different order, compose `pipeline.New` by hand and own
-the decision.
-
-## Design rules
-
-**Fail-open, always.** No optimization may break a turn. If compression errors,
-the chunk goes through uncompressed. If the cache backend is down, it is a
-miss. If the embedding service times out, the turn proceeds without retrieval.
-A panic in any of them — a tool executor, a preprocess rule, a compressor, an
-embedder — is contained the same way.
-
-`Run` returns an error only when the model call fails, when `ctx` ends, or when
-a `Stage` you supplied via `config.WithStage` returns an error or writes a
-malformed short-circuit value.
-
-One case is neither returned nor contained: **a `Stage` you supplied that
-panics propagates that panic.** `Run` does not recover it — your stage is your
-code in your pipeline, and recovering it would hide your bug rather than
-tolerate a third party's. Recover inside your own `Process` if you want it
-contained. Everything agentkit calls into itself is wrapped.
-
-**No global state.** Every stage takes its dependencies through its
-constructor. Nothing is a package-level singleton.
-
-**Metrics are optional.** Stages take a `metrics.Recorder`; the default is a
-no-op. Nothing requires a metrics backend.
-
-**The core is stdlib-only.** Verified in CI by `go list -deps`. Adapters that
-need a driver live in their own nested modules:
-
-| Module | Dependency |
-|---|---|
-| `stores/pgvector` | `jackc/pgx/v5` |
-| `toolcache/redis` | `redis/go-redis/v9` |
-
-`providers/anthropic` is built on `net/http`, so it stays in the core module.
-
-## Packages
-
-| Package | Purpose |
-|---|---|
-| `pipeline` | `Request`, `Response`, `Stage`, `Pipeline`, `ModelClient`, `Router` |
-| `config` | Functional options; owns the stage ordering |
-| `preprocess` | Resolve deterministic requests without an LLM |
-| `toolcache` | Deterministic `(tool, args)` hashing, singleflight; memory + Redis backends |
-| `rag` | Retrieval, fail-open |
-| `compress` | JSON and prose compression (`code` is a Phase 2+ stub) |
-| `cache` | Prompt-cache breakpoint placement |
-| `lazyload` | Opt-in reference resolution with path-traversal protection |
-| `router` | Complexity-scored tier selection |
-| `budget` | Per-turn-type token budgets and turn classification |
-| `metrics` | Provider-agnostic counters, no-op by default |
-| `stores`, `providers` | Retrieval and model-client interfaces |
-| `providers/anthropic` | Anthropic Messages API over `net/http` (needs an API key) |
-| `providers/cli` | Any CLI agent as a backend — `claude`, `codex`, `opencode` (needs no API key) |
-
-## Backends
-
-`ModelClient` is the only seam a provider touches. Nothing in the core imports
-a provider package, so adding one never means changing a stage.
-
-Two ship in-tree:
+### Anthropic API
 
 ```go
-// API key, full control over cache breakpoints.
-client, _ := anthropic.New(anthropic.Config{APIKey: os.Getenv("ANTHROPIC_API_KEY")})
-
-// No API key: runs whatever CLI your subscription already authenticates.
-client, _ := cli.New(cli.ClaudePreset(""))   // or CodexPreset / OpenCodePreset
+client, err := anthropic.New(anthropic.Config{
+	APIKey: os.Getenv("ANTHROPIC_API_KEY"),
+	Model:  anthropic.DefaultModel,
+})
 ```
 
-The CLI backend exists because API credit and a subscription are different
-products. If you have a Claude Pro, Codex, or OpenCode plan and no API key, the
-CLI is a real backend, not a workaround.
+The Anthropic adapter uses `net/http`, reports token/cache usage, and translates
+agentkit cache breakpoints into Anthropic `cache_control` blocks. It implements
+true incremental streaming over the Messages API's server-sent events.
 
-All three presets are verified against live binaries, not just documentation:
+### Existing CLI subscription
 
-| Preset | Verified against | Prompt via | Reports usage | Reports model |
-|---|---|---|---|---|
-| `ClaudePreset` | claude 2.1.217 | stdin | yes | yes |
-| `CodexPreset` | codex-cli 0.144.4 | stdin | yes | no |
-| `OpenCodePreset` | opencode 1.17.20 | argv | no | no |
-
-`CodexPreset` needs a working directory inside a git repository — Codex refuses
-untrusted directories, and the preset does not pass `--skip-git-repo-check` for
-you, because disabling someone else's safety guard should be a deliberate act.
-
-Re-verify any time with `AGENTKIT_CLI_LIVE=1 go test -run TestLiveCLIs -v ./providers/cli/`.
-
-**What the CLI backend cannot do:** a CLI builds its own prompt scaffold and
-exposes no `cache_control` hooks, so `Request.CacheBreakpoints` are ignored
-rather than mistranslated, and the `Usage` it reports describes the CLI's
-prompt, not yours. Every other optimization still applies — preprocess rules
-still skip calls entirely, the tool cache still prevents re-execution,
-compression still shrinks what you send, and routing still picks a backend.
-
-`CacheBreakpoints` is the one place a provider's shape shows through into a
-core type: explicit, caller-placed breakpoints are an Anthropic idea, and most
-providers cache automatically instead. It is advisory — a backend that cannot
-use it ignores it, and `cache.Aligner`'s reordering still pays off, because a
-stable prefix is what automatic caching keys on too.
-
-## Examples
-
-All run against mocks — no API key, no network, no database.
-
-```bash
-go run ./examples/rag-chatbot     # retrieval → compression → cacheable prefix
-go run ./examples/local-routing   # cost-aware split across two model tiers
-go run ./examples/coding-agent    # every stage wired into one agent loop
-go run ./benchmarks               # measures billed input tokens, baseline vs agentkit
+```go
+client, err := cli.New(cli.ClaudePreset(workDir))
+// Also available: cli.CodexPreset(workDir)
+//                 cli.OpenCodePreset(workDir, "provider/model")
 ```
 
-One more needs no mocks and no key — it drives a real CLI agent:
+The CLI adapter launches the executable directly without a shell. It needs no
+API key, but the CLI must already be installed and authenticated. CLI backends
+cannot transmit explicit provider cache breakpoints; all other pipeline
+optimizations still apply. `cli.Client` supports incremental stdout parsing
+when `Config.StreamParse` is configured; the standard presets otherwise use
+the safe one-delta fallback through `RunStream`.
+
+### Your own provider
+
+Implement two methods:
+
+```go
+type ModelClient interface {
+	Send(context.Context, *pipeline.Request) (*pipeline.Response, error)
+	Name() string
+}
+```
+
+## What each capability does
+
+| Capability | Enable with | Effect |
+|---|---|---|
+| Preprocess | `config.WithPreprocess` | Answers deterministic requests without an LLM |
+| Tool cache | `config.WithToolCache` | Reuses identical tool results and coalesces concurrent misses |
+| RAG | `config.WithRAG` | Embeds the query and retrieves top-K chunks |
+| Compression | `config.WithDefaultCompression` | Minifies JSON and collapses redundant prose whitespace |
+| Cache alignment | `config.WithCacheAlignment` | Keeps static prompt content first and emits safe breakpoints |
+| Routing | `config.WithRouter` | Selects the cheapest suitable model after prompt shaping |
+| Metrics | `config.WithMetrics` | Reports provider-neutral counters; no-op by default |
+| Custom stage | `config.WithStage` | Adds caller-owned request processing before alignment |
+| Lazy loading | caller-managed `lazyload.Loader` | Resolves protected file/content references on demand |
+| Budget policy | caller-managed `budget.Policy` | Classifies turns and supplies recommended token budgets |
+| Streaming | `kit.RunStream` instead of `kit.Run` | Delivers the answer incrementally; every stage still runs first |
+
+The built-in order is a correctness rule: retrieval and compression must finish
+before cache alignment. Custom stages added through `config.WithStage` also run
+before alignment. Routing runs last so it scores the final prompt shape.
+
+## Request and result
+
+The common request fields are:
+
+```go
+req := &pipeline.Request{
+	Query:          "Current user question",
+	Messages:       history,           // oldest first
+	ToolCalls:      pendingToolCalls,  // optional
+	NeedsRetrieval: true,              // RAG is request-level opt-in
+	TurnType:       pipeline.TurnNewQuestion,
+}
+```
+
+Mark stable system instructions and tool definitions with `Static: true`.
+Never mark per-turn evidence or retrieved content static.
+
+The result reports the answer, selected model, short-circuit status, and usage:
+
+```go
+fmt.Println(resp.Content)
+fmt.Println(resp.ModelUsed)
+fmt.Println(resp.ShortCircuited)
+fmt.Println(resp.Usage.InputTokens, resp.Usage.CacheReadTokens)
+```
+
+### Streaming responses
+
+`RunStream` uses the same stages, short-circuit logic, and router as `Run`:
+
+```go
+seq, err := kit.RunStream(ctx, req)
+if err != nil {
+	return err // failure before streaming starts
+}
+
+for delta, streamErr := range seq {
+	if streamErr != nil {
+		return streamErr // may arrive after partial text
+	}
+	fmt.Print(delta.Text)
+}
+```
+
+Streaming is an optional provider capability. A regular `ModelClient` still
+works through `RunStream`, yielding its completed response as one delta.
+Preprocess short circuits also yield one delta. Implement
+`pipeline.StreamingClient` for true incremental provider output.
+
+## Streaming
+
+`RunStream` is `Run` with an incremental result. Every stage runs first, in the
+same order — streaming is a property of the final model call only, which is why
+no stage changed to support it.
+
+```go
+seq, err := kit.RunStream(ctx, req)
+if err != nil {
+	return err // a stage failed, or the call was rejected before any output
+}
+for delta, err := range seq {
+	if err != nil {
+		return err // mid-stream failure; text already yielded is still valid
+	}
+	fmt.Print(delta.Text)
+	if delta.Usage != nil {
+		log.Printf("usage: %+v", *delta.Usage) // final delta only
+	}
+}
+```
+
+Use `pipeline.Collect(seq)` to accumulate a stream into an ordinary `*Response`.
+
+Two properties remove the branches you would otherwise write:
+
+- **A client that cannot stream still works.** Implement the optional
+  `pipeline.StreamingClient` to stream for real; without it `RunStream` calls
+  `Send` and yields one delta. Callers never ask which kind they hold.
+- **A short-circuited turn yields exactly one delta.** A preprocess rule
+  answering without a model looks like any other stream.
+
+Errors split by timing: returned from `RunStream` if nothing was produced,
+yielded inside the sequence if the failure came after some text. A partial
+answer is usually still worth showing.
+
+### Backend granularity
+
+Not all backends stream at the same resolution, and no adapter can improve on
+what a backend emits:
+
+| Backend | Granularity | Usage reported |
+|---|---|---|
+| `providers/anthropic` | per text delta (token-level) | yes, on the final delta |
+| `cli.ClaudeStreamPreset` | per assistant message — measured as 1 delta | yes |
+| `cli.CodexStreamPreset` | per agent message — measured as 1 delta | yes |
+| `cli.OpenCodeStreamPreset` | per line | no |
+
+If your UI needs per-token updates, use the API backend. CLI backends need an
+explicit `Config.StreamParse`; the stream presets set one. Without it,
+`SendStream` buffers and yields a single delta rather than guessing which of a
+CLI's lines are answer text and which are protocol noise.
+
+## Failure contract
+
+Built-in optimizations fail open:
+
+- cache failures become misses;
+- retrieval failures continue without chunks;
+- compressor failures preserve the original content;
+- broken preprocess rules are skipped;
+- router failures use the default model;
+- metrics failures never break a turn.
+
+`Run` returns an error when the context ends, the final model call fails, or a
+custom `Stage` returns an error/malformed short-circuit value. A panic from a
+custom stage is caller-owned and propagates; recover inside that stage if that
+is not desired.
+
+## Run the examples
+
+All examples except live CLI mode are safe to run without credentials:
 
 ```bash
-go run ./examples/cli-provider              # dry run: prints what would be sent
-go run ./examples/cli-provider -live        # actually invokes the CLI
+go run ./examples/rag-chatbot
+go run ./examples/local-routing
+go run ./examples/coding-agent
+go run ./examples/cli-provider
+go run ./examples/streaming
+go run ./benchmarks
+```
+
+Live CLI mode consumes subscription quota:
+
+```bash
+go run ./examples/cli-provider -live -cli claude
 go run ./examples/cli-provider -live -cli codex
+go run ./examples/cli-provider -live -cli opencode -model provider/model
+go run ./examples/streaming -cli claude
 ```
 
-Dry run is the default because a live run spends subscription quota. It still
-executes every stage and intercepts only the final `Send`, so it shows which
-turns would have reached the CLI and the exact prompt each would carry. With no
-CLI installed it prints an explanation and exits 0, which is why CI can run it.
-
-`opencode` takes an explicit `provider/model` (list them with `opencode models`),
-and passing a second one turns the example into two-tier routing over two *real*
-models rather than the mocks `examples/local-routing` uses:
+## Verify the checkout
 
 ```bash
-go run ./examples/cli-provider -live -cli opencode \
-    -model opencode-go/deepseek-v4-flash -model-strong opencode-go/qwen3.7-max
+go build ./...
+go vet ./...
+go test -race -count=1 ./...
+CGO_ENABLED=0 go build ./...
 ```
 
-```
-1. real question           ↗ opencode:opencode-go/deepseek-v4-flash (4.1s)
-2. deterministic — SHA     ✂ git_sha_validator (89µs) — no process spawned
-8. heavy — long code block ↗ opencode:opencode-go/qwen3.7-max (6.6s)
-```
+A healthy checkout reports:
 
-The escalation on turn 8 is `HeuristicRouter` reacting to length and code
-density. There is no per-request routing code in the example.
+<!-- inventory:test-funcs=260 -->
+<!-- inventory:packages=26 -->
 
-A live run against `claude` shows where the savings come from with this
-backend: three of seven turns are answered by preprocess rules in microseconds
-and never start a process at all, while the turns that do run take ~6s each.
+| Quantity | Value | Command |
+|---|---|---|
+| Test/Example functions | **260** | `grep -rhoE '^func (Test\|Example)[A-Za-z0-9_]*' --include='*_test.go' . \| wc -l` |
+| Packages in the root module | **26** | `go list ./... \| wc -l` |
+| Failures | **0** | `go test -race -count=1 ./...` |
 
-The benchmark is the acceptance test for the headline claim. On a synthetic
-12-turn workload (growing history, repeated tool calls, retrieval, and some
-deterministic turns) it currently reports:
+Those numbers are enforced, not decorative: `inventory_test.go` reads the markers
+above and fails the build when they drift. Adding a test means updating them in
+the same commit — which is the point, since two separate QA rounds were failed by
+a count that had quietly gone stale.
 
-```
-billed input tokens  : 5005 → 2148
-reduction            : 57.1%   (target ≥ 30%)
-turns short-circuited: 3/12
-tool executions      : 6 → 4
-```
+The benchmark currently reports a 57.1% reduction on its documented synthetic
+workload. Treat it as comparative evidence, not a forecast for every workload.
+Measure your own traffic before setting production targets.
 
-Read `benchmarks/main.go` before quoting that number — the accounting
-assumptions (4 chars/token, cache reads at 0.1×, writes at 1.25×) are
-documented at the top of the file, and the baseline is a plausible naive
-implementation rather than a strawman.
+## API stability
 
-## Stability
-
-Once `v1.0.0` is tagged, these interfaces are **frozen**; changing them
-requires a new major version:
+The v1 core interfaces remain frozen:
 
 - `pipeline.Stage`
-- `pipeline.ModelClient` (aliased as `providers.ModelClient`)
-- `stores.VectorStore`, `stores.Embedder`
+- `pipeline.ModelClient`
+- `stores.Embedder` and `stores.VectorStore`
 - `toolcache.Cache`
 
-Additive changes — new options, new stages, new fields on `Request` — are
-minor releases.
+Streaming is additive through the optional `pipeline.StreamingClient`
+interface, so existing providers do not need to change.
 
-## Development
+## Next
 
-```bash
-go build ./... && go vet ./... && go test -race ./...
-```
-
-Go 1.23+. `CGO_ENABLED=0` builds clean; the `-race` pass needs cgo.
-
-See [PLAN.md](PLAN.md) for phase status and the documented deviations from the
-original spec, and [docs/spec.md](docs/spec.md) for the full requirements.
-
-## License
-
-Apache-2.0. See [LICENSE](LICENSE).
+Read [MANUAL.md](MANUAL.md) for configuration recipes, extension interfaces,
+Redis and pgvector adapters, observability, security guidance, troubleshooting,
+and production rollout advice.

@@ -9,15 +9,18 @@ import (
 	"testing"
 )
 
-// The delivery doc's test inventory went stale twice — QA rounds 1 and 5, both
-// filed as Blockers under the brief's rule that a false claim in Delivery §2
-// is a Blocker. Both times the fix was to type a fresh number, and both times
-// it went stale again the moment the next regression test landed.
+// The test inventory went stale twice — QA rounds 1 and 5, both filed as
+// Blockers. Both times the fix was to type a fresh number, and both times it
+// went stale again the moment the next regression test landed. A
+// hand-maintained number in a document cannot stay true, so this test makes the
+// claim self-checking: the doc declares counts in machine-readable markers and
+// the build fails when they drift.
 //
-// A hand-maintained number in a document cannot stay true. This test makes the
-// claim self-checking: the doc declares its counts in machine-readable markers,
-// and the build fails when they drift. Same lesson as the extension matrix in
-// round 4 — a claim is either enforced or it is decoration.
+// It guards README.md, not docs/DELIVERY-1.md. That moved after Phase 5, when
+// this very test failed the build: DELIVERY-1 is a frozen record of what shipped
+// at tag v1.0.0, and forcing it to match HEAD would have destroyed its value as
+// evidence. A guard belongs on a document that is supposed to describe the
+// present.
 //
 // Deliberately NOT enforced here: the "run events" figure, which would require
 // running the whole suite from inside the suite. The doc therefore states the
@@ -26,7 +29,7 @@ import (
 var inventoryMarker = regexp.MustCompile(`<!-- inventory:([a-z-]+)=(\d+) -->`)
 
 func TestDeliveryInventoryIsCurrent(t *testing.T) {
-	const doc = "docs/DELIVERY-1.md"
+	const doc = "README.md"
 
 	raw, err := os.ReadFile(doc)
 	if err != nil {

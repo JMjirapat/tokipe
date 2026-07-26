@@ -155,6 +155,12 @@ type apiRequest struct {
 	System      []contentBlock `json:"system,omitempty"`
 	Messages    []apiMessage   `json:"messages"`
 	Temperature *float64       `json:"temperature,omitempty"`
+
+	// Stream is set only by SendStream. Omitted otherwise so a non-streaming
+	// request is byte-identical to what it was before streaming existed —
+	// which matters, because a changed request body would change the cache key
+	// the provider computes over the prefix.
+	Stream bool `json:"stream,omitempty"`
 }
 
 type apiUsage struct {

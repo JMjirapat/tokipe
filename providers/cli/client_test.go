@@ -67,6 +67,29 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "something broke")
 		os.Exit(3)
 
+	case "stream_lines":
+		for _, l := range []string{"first line", "", "second line", "third line"} {
+			fmt.Println(l)
+		}
+
+	case "stream_claude":
+		fmt.Println(`{"type":"system","subtype":"init"}`)
+		fmt.Println(`{"type":"assistant","message":{"content":[{"type":"text","text":"Hello"}]}}`)
+		fmt.Println(`not json`)
+		fmt.Println(`{"type":"assistant","message":{"content":[{"type":"text","text":", world"}]}}`)
+		fmt.Println(`{"type":"result","subtype":"success","result":"Hello, world",` +
+			`"usage":{"input_tokens":11,"output_tokens":4,"cache_read_input_tokens":2048}}`)
+
+	case "stream_codex":
+		fmt.Println(`{"type":"thread.started","thread_id":"x"}`)
+		fmt.Println(`{"type":"item.completed","item":{"type":"agent_message","text":"streamed"}}`)
+		fmt.Println(`{"type":"turn.completed","usage":{"input_tokens":9,"cached_input_tokens":3,"output_tokens":2}}`)
+
+	case "stream_then_fail":
+		fmt.Println("partial output")
+		fmt.Fprintln(os.Stderr, "then it broke")
+		os.Exit(4)
+
 	case "hang":
 		time.Sleep(30 * time.Second)
 	}
@@ -407,4 +430,197 @@ func TestOpenCodePresetNamesIncludeTheModel(t *testing.T) {
 	if !slices.Contains(cheap.Args, "opencode-go/deepseek-v4-flash") {
 		t.Errorf("Args %v missing the model", cheap.Args)
 	}
+}
+
+// --- streaming (Phase 5) ----------------------------------------------------
+
+func drainStream(t *testing.T, c *cli.Client, req *pipeline.Request) ([]string, *pipeline.Response, error) {
+	t.Helper()
+	seq, err := c.SendStream(context.Background(), req)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var texts []string
+	resp := &pipeline.Response{}
+	var b strings.Builder
+	var streamErr error
+	for d, err := range seq {
+		if d.Text != "" {
+			texts = append(texts, d.Text)
+			b.WriteString(d.Text)
+		}
+		if d.Usage != nil {
+			resp.Usage = *d.Usage
+		}
+		if d.ModelUsed != "" {
+			resp.ModelUsed = d.ModelUsed
+		}
+		if err != nil {
+			streamErr = err
+			break
+		}
+	}
+	resp.Content = b.String()
+	return texts, resp, streamErr
+}
+
+func TestLineStreamParserYieldsOneDeltaPerLine(t *testing.T) {
+	cfg := helperConfig(t, "stream_lines")
+	cfg.StreamParse = cli.LineStreamParser()
+
+	texts, resp, err := drainStream(t, mustClient(t, cfg), &pipeline.Request{Query: "q"})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	// Blank lines carry nothing and must not become deltas.
+	if len(texts) != 3 {
+		t.Fatalf("got %d deltas (%q), want 3 non-empty lines", len(texts), texts)
+	}
+	if resp.Content != "first line\nsecond line\nthird line" {
+		t.Errorf("Content = %q, want newlines restored between lines", resp.Content)
+	}
+}
+
+func TestClaudeStreamParserYieldsTextAndFinalUsage(t *testing.T) {
+	cfg := helperConfig(t, "stream_claude")
+	cfg.StreamParse = cli.ClaudeStreamParser()
+
+	texts, resp, err := drainStream(t, mustClient(t, cfg), &pipeline.Request{Query: "q"})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	if strings.Join(texts, "|") != "Hello|, world" {
+		t.Errorf("deltas = %q, want the two incremental texts", texts)
+	}
+	if resp.Content != "Hello, world" {
+		t.Errorf("Content = %q", resp.Content)
+	}
+	// The result event repeats the whole answer; it must not be appended again.
+	if strings.Count(resp.Content, "Hello") != 1 {
+		t.Errorf("the terminal result duplicated the text: %q", resp.Content)
+	}
+	want := pipeline.Usage{InputTokens: 11, OutputTokens: 4, CacheReadTokens: 2048}
+	if resp.Usage != want {
+		t.Errorf("Usage = %+v, want %+v", resp.Usage, want)
+	}
+}
+
+func TestCodexStreamParserYieldsTextAndUsage(t *testing.T) {
+	cfg := helperConfig(t, "stream_codex")
+	cfg.StreamParse = cli.CodexStreamParser()
+
+	_, resp, err := drainStream(t, mustClient(t, cfg), &pipeline.Request{Query: "q"})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	if resp.Content != "streamed" {
+		t.Errorf("Content = %q", resp.Content)
+	}
+	if resp.Usage.InputTokens != 9 || resp.Usage.CacheReadTokens != 3 {
+		t.Errorf("Usage = %+v", resp.Usage)
+	}
+}
+
+// Without a StreamParse, SendStream must still work — buffered, one delta.
+// That is what lets a caller use RunStream against any CLI.
+func TestSendStreamWithoutParserFallsBackToOneDelta(t *testing.T) {
+	cfg := helperConfig(t, "stream_lines") // no StreamParse set
+	texts, resp, err := drainStream(t, mustClient(t, cfg), &pipeline.Request{Query: "q"})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	if len(texts) != 1 {
+		t.Fatalf("got %d deltas, want a single buffered one", len(texts))
+	}
+	if !strings.Contains(resp.Content, "third line") {
+		t.Errorf("Content = %q, want the whole output", resp.Content)
+	}
+}
+
+// Text already delivered must survive a non-zero exit.
+func TestStreamExitFailureIsYieldedAfterPartialText(t *testing.T) {
+	cfg := helperConfig(t, "stream_then_fail")
+	cfg.StreamParse = cli.LineStreamParser()
+
+	_, resp, err := drainStream(t, mustClient(t, cfg), &pipeline.Request{Query: "q"})
+	if err == nil {
+		t.Fatal("a non-zero exit must surface")
+	}
+	var cliErr *cli.Error
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("err = %v (%T), want *cli.Error", err, err)
+	}
+	if cliErr.ExitCode != 4 {
+		t.Errorf("ExitCode = %d, want 4", cliErr.ExitCode)
+	}
+	if !strings.Contains(cliErr.Stderr, "then it broke") {
+		t.Errorf("Stderr = %q", cliErr.Stderr)
+	}
+	if resp.Content != "partial output" {
+		t.Errorf("Content = %q, want the text printed before the failure", resp.Content)
+	}
+}
+
+func TestStreamCanceledContextFailsUpFront(t *testing.T) {
+	cfg := helperConfig(t, "stream_lines")
+	cfg.StreamParse = cli.LineStreamParser()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := mustClient(t, cfg).SendStream(ctx, &pipeline.Request{Query: "q"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+}
+
+// Walking away mid-stream must reap the subprocess, not leave it running.
+func TestAbandonedStreamReapsTheSubprocess(t *testing.T) {
+	cfg := helperConfig(t, "stream_lines")
+	cfg.StreamParse = cli.LineStreamParser()
+	c := mustClient(t, cfg)
+
+	seq, err := c.SendStream(context.Background(), &pipeline.Request{Query: "q"})
+	if err != nil {
+		t.Fatalf("SendStream: %v", err)
+	}
+	for range seq {
+		break
+	}
+
+	// A second full stream on the same client proves nothing was wedged.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _, _ = drainStream(t, c, &pipeline.Request{Query: "again"})
+	}()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the client is wedged after an abandoned stream")
+	}
+}
+
+func TestStreamPresetsAreWired(t *testing.T) {
+	cases := map[string]cli.Config{
+		"claude":   cli.ClaudeStreamPreset(""),
+		"codex":    cli.CodexStreamPreset(""),
+		"opencode": cli.OpenCodeStreamPreset("", "p/m"),
+	}
+	for name, cfg := range cases {
+		t.Run(name, func(t *testing.T) {
+			if cfg.StreamParse == nil {
+				t.Error("a stream preset must set StreamParse")
+			}
+			if cfg.Parse == nil {
+				t.Error("Parse must remain set so plain Send still works")
+			}
+		})
+	}
+	if !slices.Contains(cli.ClaudeStreamPreset("").Args, "stream-json") {
+		t.Error("the claude stream preset must request stream-json")
+	}
+}
+
+func TestClientSatisfiesStreamingClient(t *testing.T) {
+	var _ pipeline.StreamingClient = mustClient(t, cli.Config{Command: "go"})
 }

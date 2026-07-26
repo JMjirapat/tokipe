@@ -28,6 +28,7 @@ jobs:
           go run ./examples/coding-agent
           # Dry run by default; exits 0 and explains itself when no CLI is installed.
           go run ./examples/cli-provider
+          go run ./examples/streaming
 
       # Fails the build if the >=30% input-token reduction claim regresses.
       - run: go run ./benchmarks

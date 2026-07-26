@@ -278,13 +278,28 @@ func TestMatrixCoversEveryExtensionMethod(t *testing.T) {
 		"pipeline.ModelClient": reflect.TypeOf((*pipeline.ModelClient)(nil)).Elem(),
 		"pipeline.Stage":       reflect.TypeOf((*pipeline.Stage)(nil)).Elem(),
 		"metrics.Recorder":     reflect.TypeOf((*metrics.Recorder)(nil)).Elem(),
-		"metrics.Counter":      reflect.TypeOf((*metrics.Counter)(nil)).Elem(),
+		// Phase 5. Registering it here is the manual step the coverage test
+		// cannot automate — documented as the one gap reflection leaves.
+		"pipeline.StreamingClient": reflect.TypeOf((*pipeline.StreamingClient)(nil)).Elem(),
+		"metrics.Counter":          reflect.TypeOf((*metrics.Counter)(nil)).Elem(),
 	}
 
 	// Methods agentkit never calls on the request path, with the reason.
 	exempt := map[string]string{
 		// Send IS the model call; its failure is the one error Run may return.
 		"pipeline.ModelClient.Send": "the model call itself, not an optimization",
+
+		// SendStream is Send's streaming twin — also the model call, so also
+		// not an optimization to be contained. It carries an extra caveat that
+		// no boundary here could fix: a panic raised *inside* the returned
+		// sequence happens while the consumer ranges over it, in the
+		// consumer's own goroutine, so only the consumer can recover it.
+		"pipeline.StreamingClient.SendStream": "the model call itself; in-sequence panics are the consumer's",
+
+		// Promoted from the embedded ModelClient; already covered under those
+		// names. Reflection sees promoted methods, so both need saying.
+		"pipeline.StreamingClient.Name": "same method as pipeline.ModelClient.Name",
+		"pipeline.StreamingClient.Send": "same method as pipeline.ModelClient.Send",
 	}
 
 	// Matching is on the exact canonical identifier "pkg.Interface.Method".

@@ -10,7 +10,7 @@ spec. They are called out where they appear.
 
 ---
 
-## Phase 5 — Streaming
+## Phase 5 — Streaming ✅ shipped
 
 **Why first:** it is the only item whose *API shape* interacts with the freeze.
 Every other phase adds a stage; this one adds a way to call. Deciding it late
@@ -21,7 +21,7 @@ The pipeline architecture already contains the problem, which is the good news:
 stages all run *before* the model call, so streaming touches only the final
 step. No stage needs to change.
 
-- [ ] `StreamingClient` as an **optional** interface a client may also
+- [x] `StreamingClient` as an **optional** interface a client may also
       implement — `ModelClient` itself stays frozen:
       ```go
       type Delta struct { Text string; Usage *Usage }
@@ -31,21 +31,41 @@ step. No stage needs to change.
       }
       ```
       (`iter.Seq2` is stdlib as of Go 1.23, so this costs no dependency.)
-- [ ] `Pipeline.RunStream` — runs every stage as usual, then streams the final
+- [x] `Pipeline.RunStream` — runs every stage as usual, then streams the final
       call. A preprocess short-circuit yields exactly one `Delta` and closes,
       so callers need no special case.
-- [ ] Adapter so a non-streaming `ModelClient` still satisfies `RunStream`,
+- [x] Adapter so a non-streaming `ModelClient` still satisfies `RunStream`,
       yielding its whole response as one `Delta`. Callers should never have to
       ask which kind of client they hold.
-- [ ] `providers/anthropic`: SSE parsing, with `Usage` arriving on the final
+- [x] `providers/anthropic`: SSE parsing, with `Usage` arriving on the final
       event.
-- [ ] `providers/cli`: stream stdout line by line. `claude -p --output-format
+- [x] `providers/cli`: stream stdout line by line. `claude -p --output-format
       stream-json` and `codex exec --json` already emit incrementally; opencode
       does not, so it uses the adapter.
 
-**DoD:** an example streams tokens to stdout through the full stage set; a
-short-circuited turn and a non-streaming backend both work through the same
-call path; `go test -race` green.
+**DoD met.** `examples/streaming` streams through the full stage set; a
+short-circuited turn and a non-streaming backend both work through the same call
+path; `go test -race` green.
+
+**What the build taught us, beyond the plan:**
+
+- `Run` and `RunStream` now share one `prepare` helper holding the stage loop,
+  short-circuit handling and routing. Two copies would have drifted, and that
+  is a bug class better designed out than tested for.
+- **CLI streaming is not token-level, and cannot be made so.** Measured live:
+  `claude --output-format stream-json` emits an assistant message as one block
+  (1 delta), `codex exec --json` likewise (1 delta), `opencode` streams a line
+  at a time (5 deltas for a five-line answer). The granularity limit is in the
+  CLIs' output. A UI that needs per-token updates needs the API backend.
+- `providers/cli` requires an explicit `StreamParse`; it is deliberately not
+  defaulted, because guessing which lines are answer text and which are
+  protocol chatter would show users a CLI's internals as if they were the
+  answer. Without it, `SendStream` buffers and yields one delta.
+- `Delta.Usage` is non-nil only on the final delta. Anthropic splits usage
+  across `message_start` and `message_delta`, so the adapter merges rather than
+  overwrites — a later frame must not zero an earlier one.
+- The non-streaming request body is unchanged: `stream` is `omitempty`, because
+  a changed body would change the prefix the provider hashes for its cache.
 
 ## Phase 6 — Context budget enforcement
 

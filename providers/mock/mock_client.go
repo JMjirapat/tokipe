@@ -3,6 +3,8 @@ package mock
 
 import (
 	"context"
+	"iter"
+	"strings"
 	"sync"
 
 	"agentkit/pipeline"
@@ -80,4 +82,87 @@ func (c *Client) LastRequest() *pipeline.Request {
 		return nil
 	}
 	return c.requests[len(c.requests)-1]
+}
+
+// StreamClient is a Client that also implements pipeline.StreamingClient, for
+// testing and demonstrating the streaming path without a real provider.
+//
+// It is a separate type rather than extra methods on Client on purpose: half
+// the value of the streaming tests is checking what happens when a client does
+// NOT stream, and Client must stay that way to serve as the negative case.
+type StreamClient struct {
+	*Client
+
+	// Chunks are yielded in order. When empty, Response.Content is split on
+	// spaces so a caller gets several deltas without having to spell them out.
+	Chunks []string
+
+	// Err, if set, is yielded after every chunk in Chunks — a mid-stream
+	// failure, as opposed to Client.Err which fails before streaming starts.
+	Err error
+
+	// StreamErr, if set, is returned by SendStream itself, before any delta.
+	StreamErr error
+
+	mu          sync.Mutex
+	streamCalls int
+}
+
+var _ pipeline.StreamingClient = (*StreamClient)(nil)
+
+// NewStream returns a StreamClient that answers with content, streamed.
+func NewStream(name, content string, chunks ...string) *StreamClient {
+	return &StreamClient{Client: New(name, content), Chunks: chunks}
+}
+
+func (s *StreamClient) SendStream(ctx context.Context, req *pipeline.Request) (iter.Seq2[pipeline.Delta, error], error) {
+	s.mu.Lock()
+	s.streamCalls++
+	s.mu.Unlock()
+
+	s.Client.mu.Lock()
+	s.Client.requests = append(s.Client.requests, req)
+	s.Client.mu.Unlock()
+
+	if s.StreamErr != nil {
+		return nil, s.StreamErr
+	}
+
+	chunks := s.Chunks
+	if len(chunks) == 0 && s.Response != nil {
+		chunks = strings.SplitAfter(s.Response.Content, " ")
+	}
+	name := s.Name()
+	usage := pipeline.Usage{}
+	if s.Response != nil {
+		usage = s.Response.Usage
+	}
+
+	return func(yield func(pipeline.Delta, error) bool) {
+		for i, c := range chunks {
+			if err := ctx.Err(); err != nil {
+				yield(pipeline.Delta{ModelUsed: name}, err)
+				return
+			}
+			d := pipeline.Delta{Text: c, ModelUsed: name}
+			// Usage rides the last delta, as a real provider reports it.
+			if i == len(chunks)-1 && s.Err == nil {
+				u := usage
+				d.Usage = &u
+			}
+			if !yield(d, nil) {
+				return // the consumer stopped early
+			}
+		}
+		if s.Err != nil {
+			yield(pipeline.Delta{ModelUsed: name}, s.Err)
+		}
+	}, nil
+}
+
+// StreamCalls reports how many times SendStream was invoked.
+func (s *StreamClient) StreamCalls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.streamCalls
 }
