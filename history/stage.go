@@ -59,6 +59,9 @@ const (
 	MetaTokensOut = "history.tokens_after"
 )
 
+// MetricTokensAfter is a histogram of post-trim request sizes.
+const MetricTokensAfter = "history.tokens_after"
+
 // Summarizer replaces dropped messages with a single message standing in for
 // them. Optional: without one, the stage drops them outright.
 //
@@ -162,6 +165,11 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 	cost, err := s.count(ctx, req)
 	if err != nil {
 		metrics.Inc(s.rec, MetricSkipped, map[string]string{"reason": "count_failed"})
+		// Without a count there is no safe trim. Reported because an operator
+		// who enabled a budget deserves to know it is not being enforced.
+		metrics.Degrade(s.rec, metrics.Degradation{
+			Stage: s.Name(), Reason: "counter_failed", Err: err,
+		})
 		return req, nil
 	}
 	if cost.Total <= limit {
@@ -173,6 +181,12 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 	trimmed, dropped := s.trim(ctx, req, limit, cost)
 	if dropped == 0 {
 		metrics.Inc(s.rec, MetricOverBudget, map[string]string{"reason": "nothing_trimmable"})
+		metrics.Degrade(s.rec, metrics.Degradation{
+			Stage:  s.Name(),
+			Reason: "nothing_trimmable",
+			Detail: fmt.Sprintf("%d tokens over a %d budget, but only static content and the current turn remain",
+				cost.Total-limit, limit),
+		})
 		return req, nil
 	}
 
@@ -188,7 +202,15 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 	metrics.Inc(s.rec, MetricTrimmed, map[string]string{"turn": req.TurnType.String()})
 	if after.Total > limit {
 		metrics.Inc(s.rec, MetricOverBudget, map[string]string{"reason": "still_over"})
+		metrics.Degrade(s.rec, metrics.Degradation{
+			Stage:  s.Name(),
+			Reason: "still_over_budget",
+			Detail: fmt.Sprintf("trimmed %d messages, still %d tokens over %d", dropped, after.Total-limit, limit),
+		})
 	}
+	// Token counts per turn: the series that shows whether the budget is doing
+	// anything, and whether it is set anywhere near the real traffic.
+	metrics.Observe(s.rec, MetricTokensAfter, float64(after.Total), nil)
 	return trimmed, nil
 }
 

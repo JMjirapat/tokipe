@@ -91,7 +91,15 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 			}
 			compressed, err := safe.Value(func() (string, error) { return c.Compress(original) })
 			if err != nil {
-				break // fail-open: leave this chunk uncompressed
+				// Fail-open: leave the chunk uncompressed, and report it —
+				// silently sending full-size chunks is the failure mode this
+				// stage exists to prevent.
+				metrics.Degrade(s.rec, metrics.Degradation{
+					Stage:  s.Name(),
+					Reason: "compress_failed",
+					Err:    err,
+				})
+				break
 			}
 			if len(compressed) >= len(original) {
 				// No win; never make a prompt bigger in the name of

@@ -102,10 +102,17 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 
 		v, err, shared := s.resolve(ctx, key, call)
 		if err != nil {
+			reason := "tool_failed"
 			var pe *safe.PanicError
 			if errors.As(err, &pe) {
+				reason = "tool_panicked"
 				metrics.Inc(s.rec, CounterPanic, map[string]string{"tool": call.Name})
 			}
+			// An unresolved tool call means the model answers without data it
+			// was supposed to have. Never silent.
+			metrics.Degrade(s.rec, metrics.Degradation{
+				Stage: s.Name(), Reason: reason, Err: err, Detail: call.Name,
+			})
 			continue // fail-open: leave this call unresolved
 		}
 		if shared {
@@ -171,6 +178,9 @@ func (s *Stage) get(ctx context.Context, call pipeline.ToolCall) (value any, hit
 		// A panicking backend is a broken backend; count it and treat the
 		// lookup as a miss.
 		metrics.Inc(s.rec, CounterPanic, map[string]string{"tool": call.Name, "op": "get"})
+		metrics.Degrade(s.rec, metrics.Degradation{
+			Stage: s.Name(), Reason: "cache_get_panicked", Err: err, Detail: call.Name,
+		})
 		return nil, false
 	}
 	return value, hit
@@ -183,9 +193,16 @@ func (s *Stage) set(ctx context.Context, call pipeline.ToolCall, v any) {
 	if err := safe.Do(func() error {
 		return s.cache.Set(ctx, call.Name, call.Args, v, s.ttl)
 	}); err != nil {
+		reason := "cache_set_failed"
 		var pe *safe.PanicError
 		if errors.As(err, &pe) {
+			reason = "cache_set_panicked"
 			metrics.Inc(s.rec, CounterPanic, map[string]string{"tool": call.Name, "op": "set"})
 		}
+		// The result survives; only the caching of it was lost. Worth knowing,
+		// because it means the next identical call pays full price again.
+		metrics.Degrade(s.rec, metrics.Degradation{
+			Stage: s.Name(), Reason: reason, Err: err, Detail: call.Name,
+		})
 	}
 }

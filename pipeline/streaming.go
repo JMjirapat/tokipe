@@ -128,6 +128,11 @@ func Collect(seq iter.Seq2[Delta, error]) (*Response, error) {
 	return resp, nil
 }
 
+// MetaRouterError holds the error from a Router that panicked. The pipeline
+// package reports nothing itself — it has no Recorder, by design — so it leaves
+// the evidence in Metadata for a caller or a wrapping stage to surface.
+const MetaRouterError = "router.error"
+
 // prepare runs the stages and resolves the client, shared by Run and RunStream
 // so the two can never drift in stage order, short-circuit handling, or
 // routing. A non-nil *Response means a stage answered and no model call is due.
@@ -163,6 +168,7 @@ func (p *Pipeline) prepare(ctx context.Context, req *Request) (*Request, *Respon
 		switch {
 		case err != nil:
 			req.SetMeta("router.reason", "router_panicked")
+			req.SetMeta(MetaRouterError, err)
 		case d.Client != nil:
 			client = d.Client
 			req.SetMeta("router.reason", d.Reason)

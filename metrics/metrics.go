@@ -16,10 +16,14 @@ type Recorder interface {
 	Counter(name string) Counter
 }
 
-// Nop is a Recorder that discards everything.
+// Nop is a Recorder that discards everything. It satisfies the optional
+// interfaces too, so a caller can pass it anywhere without capability checks.
 type Nop struct{}
 
-func (Nop) Counter(string) Counter { return nopCounter{} }
+func (Nop) Counter(string) Counter     { return nopCounter{} }
+func (Nop) Histogram(string) Histogram { return nil }
+func (Nop) Gauge(string) Gauge         { return nil }
+func (Nop) Degraded(Degradation)       {}
 
 type nopCounter struct{}
 
@@ -53,7 +57,20 @@ func Inc(r Recorder, name string, labels map[string]string) {
 }
 
 // safeRecorder contains panics from a caller-supplied Recorder.
+//
+// It implements every optional interface — histograms, gauges, degradation —
+// and forwards each only if the wrapped recorder actually supports it. That is
+// load-bearing: a wrapper implementing only Recorder would HIDE the optional
+// interfaces behind itself, so every type assertion in Observe, Set and Degrade
+// would fail and each observation would be silently dropped. Wrapping for safety
+// must not cost capability.
 type safeRecorder struct{ inner Recorder }
+
+var (
+	_ HistogramRecorder   = safeRecorder{}
+	_ GaugeRecorder       = safeRecorder{}
+	_ DegradationReporter = safeRecorder{}
+)
 
 func (s safeRecorder) Counter(name string) (c Counter) {
 	defer func() {
@@ -65,6 +82,55 @@ func (s safeRecorder) Counter(name string) (c Counter) {
 		return safeCounter{inner: got}
 	}
 	return nopCounter{}
+}
+
+// Histogram forwards to the wrapped recorder, or returns nil when it does not
+// support histograms. Observe treats nil as "not supported" and drops the value.
+func (s safeRecorder) Histogram(name string) Histogram {
+	hr, ok := s.inner.(HistogramRecorder)
+	if !ok {
+		return nil
+	}
+	h := safeHistogram(hr, name)
+	if h == nil {
+		return nil
+	}
+	return safeHistogramWrapper{inner: h}
+}
+
+// Gauge forwards to the wrapped recorder, or returns nil when unsupported.
+func (s safeRecorder) Gauge(name string) Gauge {
+	gr, ok := s.inner.(GaugeRecorder)
+	if !ok {
+		return nil
+	}
+	g := safeGauge(gr, name)
+	if g == nil {
+		return nil
+	}
+	return safeGaugeWrapper{inner: g}
+}
+
+// Degraded forwards to the wrapped recorder when it reports degradations, and
+// otherwise does nothing. Reporting is never required.
+func (s safeRecorder) Degraded(d Degradation) {
+	dr, ok := s.inner.(DegradationReporter)
+	if !ok {
+		return
+	}
+	guard(func() { dr.Degraded(d) })
+}
+
+type safeHistogramWrapper struct{ inner Histogram }
+
+func (s safeHistogramWrapper) Observe(v float64, labels map[string]string) {
+	guard(func() { s.inner.Observe(v, labels) })
+}
+
+type safeGaugeWrapper struct{ inner Gauge }
+
+func (s safeGaugeWrapper) Set(v float64, labels map[string]string) {
+	guard(func() { s.inner.Set(v, labels) })
 }
 
 // safeCounter contains panics from a caller-supplied Counter.

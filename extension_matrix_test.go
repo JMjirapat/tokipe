@@ -29,6 +29,10 @@ import (
 //	round 4: metrics.Recorder   → the matrix itself claimed completeness and
 //	                              had omitted metrics entirely
 //
+// Phase 7 added three optional Recorder interfaces. Registering them here is the
+// manual step reflection cannot do, and the reason it is documented as a gap
+// rather than claimed away.
+//
 // Fixing instances one at a time was losing to that pattern. This table
 // enumerates every method agentkit calls on caller-supplied code and asserts
 // the contract for each, so a new extension point has to be added here before
@@ -281,7 +285,15 @@ func TestMatrixCoversEveryExtensionMethod(t *testing.T) {
 		// Phase 5. Registering it here is the manual step the coverage test
 		// cannot automate — documented as the one gap reflection leaves.
 		"pipeline.StreamingClient": reflect.TypeOf((*pipeline.StreamingClient)(nil)).Elem(),
-		"metrics.Counter":          reflect.TypeOf((*metrics.Counter)(nil)).Elem(),
+
+		// Phase 7 observability sinks. Optional interfaces on Recorder, so a
+		// caller who implements only Recorder is unaffected.
+		"metrics.HistogramRecorder":   reflect.TypeOf((*metrics.HistogramRecorder)(nil)).Elem(),
+		"metrics.GaugeRecorder":       reflect.TypeOf((*metrics.GaugeRecorder)(nil)).Elem(),
+		"metrics.DegradationReporter": reflect.TypeOf((*metrics.DegradationReporter)(nil)).Elem(),
+		"metrics.Histogram":           reflect.TypeOf((*metrics.Histogram)(nil)).Elem(),
+		"metrics.Gauge":               reflect.TypeOf((*metrics.Gauge)(nil)).Elem(),
+		"metrics.Counter":             reflect.TypeOf((*metrics.Counter)(nil)).Elem(),
 	}
 
 	// Methods agentkit never calls on the request path, with the reason.
@@ -300,6 +312,22 @@ func TestMatrixCoversEveryExtensionMethod(t *testing.T) {
 		// names. Reflection sees promoted methods, so both need saying.
 		"pipeline.StreamingClient.Name": "same method as pipeline.ModelClient.Name",
 		"pipeline.StreamingClient.Send": "same method as pipeline.ModelClient.Send",
+
+		// Promoted from the embedded Recorder on each optional interface.
+		"metrics.HistogramRecorder.Counter":   "same method as metrics.Recorder.Counter",
+		"metrics.GaugeRecorder.Counter":       "same method as metrics.Recorder.Counter",
+		"metrics.DegradationReporter.Counter": "same method as metrics.Recorder.Counter",
+
+		// Covered by TestObservabilitySinkPanicsAreContained, not by a
+		// matrixCase. A matrixCase installs a broken dependency through a
+		// config option that produces a stage; a recorder is wired once and
+		// used by every stage, so it does not fit that shape. The contract is
+		// identical and is asserted per method there.
+		"metrics.HistogramRecorder.Histogram":  "covered by TestObservabilitySinkPanicsAreContained",
+		"metrics.GaugeRecorder.Gauge":          "covered by TestObservabilitySinkPanicsAreContained",
+		"metrics.DegradationReporter.Degraded": "covered by TestObservabilitySinkPanicsAreContained",
+		"metrics.Histogram.Observe":            "covered by TestObservabilitySinkPanicsAreContained",
+		"metrics.Gauge.Set":                    "covered by TestObservabilitySinkPanicsAreContained",
 	}
 
 	// Matching is on the exact canonical identifier "pkg.Interface.Method".
@@ -352,5 +380,106 @@ func TestMatrixCoversEveryExtensionMethod(t *testing.T) {
 		if !known[id] {
 			t.Errorf("matrix point %q is not a known extension method; fix the name or the list", id)
 		}
+	}
+}
+
+// Phase 7's observability sinks are caller-supplied code on the request path,
+// so they get the same treatment as every other extension point: a panic is
+// contained and the turn still completes.
+//
+// They are asserted here rather than in matrixCases because they are not
+// reached through config options that produce a stage — the recorder is wired
+// once and used by all of them.
+func TestObservabilitySinkPanicsAreContained(t *testing.T) {
+	cases := map[string]metrics.Recorder{
+		"Recorder.Counter panics":             panicRecorder{onCounter: true},
+		"Counter.Inc panics":                  panicRecorder{},
+		"Recorder.Counter returns nil":        nilCounterRecorder{},
+		"HistogramRecorder.Histogram panics":  &sinkPanicRecorder{on: "histogram"},
+		"Histogram.Observe panics":            &sinkPanicRecorder{on: "observe"},
+		"GaugeRecorder.Gauge panics":          &sinkPanicRecorder{on: "gauge"},
+		"Gauge.Set panics":                    &sinkPanicRecorder{on: "set"},
+		"DegradationReporter.Degraded panics": &sinkPanicRecorder{on: "degraded"},
+	}
+
+	for name, rec := range cases {
+		t.Run(name, func(t *testing.T) {
+			model := mock.New("m", "answer")
+			// A pipeline that exercises counters, histograms, gauges and a
+			// degradation in one turn.
+			kit := agentkit.New(model,
+				config.WithMetrics(rec),
+				config.WithRAG(panicEmbedder{}, panicStore{}, 3), // forces a degradation
+				config.WithCacheAlignment(),
+			)
+
+			var panicked any
+			var resp *pipeline.Response
+			var err error
+			func() {
+				defer func() { panicked = recover() }()
+				resp, err = kit.Run(context.Background(), &pipeline.Request{
+					Query:          "q",
+					NeedsRetrieval: true,
+					Messages:       []pipeline.Message{{Role: "system", Content: "sys", Static: true}},
+				})
+			}()
+
+			if panicked != nil {
+				t.Fatalf("a diagnostics panic escaped Pipeline.Run: %v", panicked)
+			}
+			if err != nil {
+				t.Fatalf("diagnostics must never fail a turn: %v", err)
+			}
+			if resp.Content != "answer" || model.Calls() != 1 {
+				t.Fatalf("resp=%+v calls=%d", resp, model.Calls())
+			}
+		})
+	}
+}
+
+// sinkPanicRecorder panics from exactly one observability method, so each is
+// covered independently rather than as a single "everything breaks" case.
+type sinkPanicRecorder struct{ on string }
+
+func (s *sinkPanicRecorder) Counter(string) metrics.Counter { return sinkCounter{} }
+
+func (s *sinkPanicRecorder) Histogram(string) metrics.Histogram {
+	if s.on == "histogram" {
+		panic("Histogram panic")
+	}
+	return sinkHistogram{panics: s.on == "observe"}
+}
+
+func (s *sinkPanicRecorder) Gauge(string) metrics.Gauge {
+	if s.on == "gauge" {
+		panic("Gauge panic")
+	}
+	return sinkGauge{panics: s.on == "set"}
+}
+
+func (s *sinkPanicRecorder) Degraded(metrics.Degradation) {
+	if s.on == "degraded" {
+		panic("Degraded panic")
+	}
+}
+
+type sinkCounter struct{}
+
+func (sinkCounter) Inc(map[string]string) {}
+
+type sinkHistogram struct{ panics bool }
+
+func (h sinkHistogram) Observe(float64, map[string]string) {
+	if h.panics {
+		panic("Observe panic")
+	}
+}
+
+type sinkGauge struct{ panics bool }
+
+func (g sinkGauge) Set(float64, map[string]string) {
+	if g.panics {
+		panic("Set panic")
 	}
 }

@@ -213,5 +213,15 @@ func (c Config) Stages() []pipeline.Stage {
 		stages = append(stages, cache.NewAlignerWith(specs, cache.WithMetrics(rec)))
 	}
 
+	// Per-stage timing, applied last so it wraps every stage uniformly —
+	// including caller-supplied ones, which are usually the interesting ones.
+	// metrics.Timed returns the stage unchanged when the recorder cannot record
+	// histograms, so this is free for callers who did not ask for it.
+	if metrics.SupportsHistograms(rec) {
+		for i, st := range stages {
+			stages[i] = metrics.Timed(st, rec)
+		}
+	}
+
 	return stages
 }

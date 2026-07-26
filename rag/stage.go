@@ -106,6 +106,7 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 	}
 	if s.embedder == nil || s.store == nil || s.topK <= 0 {
 		s.failOpen(req, "not_configured")
+		s.degrade("not_configured", nil)
 		return req, nil
 	}
 
@@ -117,6 +118,7 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 			return req, ctxErr
 		}
 		s.failOpen(req, "embed_error")
+		s.degrade("embed_failed", err)
 		return req, nil
 	}
 
@@ -126,6 +128,7 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 			return req, ctxErr
 		}
 		s.failOpen(req, "search_error")
+		s.degrade("search_failed", err)
 		return req, nil
 	}
 
@@ -136,6 +139,13 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 	req.SetMeta("rag.chunks", len(chunks))
 	metrics.Inc(s.metrics, MetricRetrievals, map[string]string{"result": "ok"})
 	return req, nil
+}
+
+// degrade reports why retrieval was skipped. failOpen already counted it; this
+// adds the reason and the error, so an operator can tell a misconfiguration
+// from an outage.
+func (s *Stage) degrade(reason string, err error) {
+	metrics.Degrade(s.metrics, metrics.Degradation{Stage: s.Name(), Reason: reason, Err: err})
 }
 
 func (s *Stage) failOpen(req *pipeline.Request, reason string) {

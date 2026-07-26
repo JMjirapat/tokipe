@@ -136,26 +136,75 @@ The static prefix is byte-identical across all 100 turns
   in `Metadata` as arbitrary `any`, and truncating them safely needs a contract
   about their shape that does not exist yet.
 
-## Phase 7 — Production observability
+## Phase 7 — Production observability ✅ shipped
 
 **Why it follows Phase 6 rather than leading:** fail-open means a broken
 optimization is silent by design. That is right for availability and wrong for
 operations — today a dead cache backend degrades every request and nothing
 says so. Phase 6's claims also need measurement in production to be believed.
 
-- [ ] A degradation channel: when a stage fails open, it reports *why*, without
+- [x] A degradation channel: when a stage fails open, it reports *why*, without
       failing the turn. A callback or an event on the `Recorder`, not a log
       line — the library must not choose a logger for its host.
-- [ ] Extend `metrics` beyond counters: histograms for stage latency and token
+- [x] Extend `metrics` beyond counters: histograms for stage latency and token
       counts, a gauge for cache hit rate. Additive to `Recorder`; the no-op
       default stays the default.
-- [ ] OpenTelemetry adapter in its own nested module, so the core stays
+- [x] OpenTelemetry adapter in its own nested module, so the core stays
       stdlib-only.
-- [ ] Per-stage timing, to answer "is this pipeline paying for itself?" with
+- [x] Per-stage timing, to answer "is this pipeline paying for itself?" with
       data rather than a synthetic benchmark.
 
-**DoD:** an example dashboard-in-a-terminal shows hit rate, short-circuit rate,
-per-stage latency, and degradation events for a running workload.
+**DoD met.** `go run ./examples/observability` renders all four. Run it with
+`-break` to make every optional dependency fail:
+
+```
+ RATES
+   short-circuit rate    0%   (0/40 turns answered with no model call)
+   tool cache hit rate   0%   (0 hits, 10 misses)
+
+ STAGE LATENCY (ms)
+   stage           calls    mean    peak
+   toolcache          40   0.007   0.249
+   ...
+
+ DEGRADATIONS  (80)
+   history / counter_failed          ×40
+   preprocess / rule_failed          ×10
+   rag / embed_failed                ×10
+   toolcache / cache_get_panicked    ×10
+   toolcache / tool_failed           ×10
+
+ All 40 turns still succeeded.
+```
+
+That output is the whole argument for the phase: fail-open kept every turn
+alive while the pipeline stopped optimizing entirely, and nothing except the
+degradation log would have told you.
+
+**What the build taught us, beyond the plan:**
+
+- **The safety wrapper was hiding the new capabilities.** `metrics.Or` wraps a
+  recorder to contain panics, and the wrapper implemented only `Recorder` — so
+  every type assertion for the new optional interfaces failed and every
+  histogram, gauge and degradation was silently discarded. Caught by a test
+  written specifically to check it. Wrapping for safety must not cost
+  capability, and that is now pinned by `TestOrPreservesOptionalCapabilities`.
+- **Optional interfaces, not a wider `Recorder`.** `Recorder` is the interface
+  callers implement; adding methods would have broken every existing
+  implementation, including this repository's own examples. Same reasoning that
+  kept `ModelClient` frozen when streaming arrived.
+- **The degradation sink lives on the `Recorder`.** One object, one wiring
+  point. The library still chooses nothing — no logger, no format, no
+  destination; it hands over a struct.
+- **`Degradation.Err` never becomes a metric attribute.** Error strings are
+  unbounded, and that is how a backend gets a cardinality explosion. It reaches
+  the handler, where a logger can take it. Asserted in the OTel adapter's tests.
+- **A metric nothing can display is not shipped.** Per-stage latency needed the
+  in-memory recorder to index observations by label; without that, agentkit
+  emitted the metric and no in-tree recorder could show the breakdown the DoD
+  asked for.
+- Instruments are memoised in the OTel adapter: agentkit asks for the same
+  handful of names on every turn, and OTel instrument creation is not free.
 
 ## Phase 8 — The deferred v1 items
 

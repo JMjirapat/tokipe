@@ -29,6 +29,8 @@ jobs:
           # Dry run by default; exits 0 and explains itself when no CLI is installed.
           go run ./examples/cli-provider
           go run ./examples/streaming
+          go run ./examples/observability
+          go run ./examples/observability -break
 
       # Fails the build if the >=30% input-token reduction claim regresses.
       - run: go run ./benchmarks
@@ -51,6 +53,7 @@ jobs:
       matrix:
         mod:
           - stores/pgvector
+          - metrics/otel
           - toolcache/redis
     steps:
       - uses: actions/checkout@v4

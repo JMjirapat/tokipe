@@ -136,7 +136,19 @@ func (s *Stage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.R
 		}
 		resp, err := safe.Value(func() (*pipeline.Response, error) { return r.Handle(req) })
 		if err != nil || resp == nil {
-			// Fail-open: treat as "did not match" and keep going.
+			// Fail-open: treat as "did not match" and keep going — but say so,
+			// or a permanently broken rule is indistinguishable from one that
+			// simply never matches.
+			reason := "rule_returned_nil"
+			if err != nil {
+				reason = "rule_failed"
+			}
+			metrics.Degrade(s.metrics, metrics.Degradation{
+				Stage:  s.Name(),
+				Reason: reason,
+				Err:    err,
+				Detail: safe.Name(r.Name, UnnamedRule),
+			})
 			continue
 		}
 		// Name() is caller code too. A panic here would discard a result the

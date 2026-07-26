@@ -150,7 +150,7 @@ type ModelClient interface {
 | Compression | `config.WithDefaultCompression` | Minifies JSON and collapses redundant prose whitespace |
 | Cache alignment | `config.WithCacheAlignment` | Keeps static prompt content first and emits safe breakpoints |
 | Routing | `config.WithRouter` | Selects the cheapest suitable model after prompt shaping |
-| Metrics | `config.WithMetrics` | Reports provider-neutral counters; no-op by default |
+| Metrics | `config.WithMetrics` | Provider-neutral counters, plus optional histograms, gauges and degradation events; no-op by default |
 | Custom stage | `config.WithStage` | Adds caller-owned request processing before alignment |
 | Lazy loading | caller-managed `lazyload.Loader` | Resolves protected file/content references on demand |
 | History budget | `config.WithHistoryBudget` | Trims the conversation to fit a per-turn-type token budget |
@@ -210,41 +210,10 @@ works through `RunStream`, yielding its completed response as one delta.
 Preprocess short circuits also yield one delta. Implement
 `pipeline.StreamingClient` for true incremental provider output.
 
-## Streaming
-
-`RunStream` is `Run` with an incremental result. Every stage runs first, in the
-same order — streaming is a property of the final model call only, which is why
-no stage changed to support it.
-
-```go
-seq, err := kit.RunStream(ctx, req)
-if err != nil {
-	return err // a stage failed, or the call was rejected before any output
-}
-for delta, err := range seq {
-	if err != nil {
-		return err // mid-stream failure; text already yielded is still valid
-	}
-	fmt.Print(delta.Text)
-	if delta.Usage != nil {
-		log.Printf("usage: %+v", *delta.Usage) // final delta only
-	}
-}
-```
-
-Use `pipeline.Collect(seq)` to accumulate a stream into an ordinary `*Response`.
-
-Two properties remove the branches you would otherwise write:
-
-- **A client that cannot stream still works.** Implement the optional
-  `pipeline.StreamingClient` to stream for real; without it `RunStream` calls
-  `Send` and yields one delta. Callers never ask which kind they hold.
-- **A short-circuited turn yields exactly one delta.** A preprocess rule
-  answering without a model looks like any other stream.
-
-Errors split by timing: returned from `RunStream` if nothing was produced,
-yielded inside the sequence if the failure came after some text. A partial
-answer is usually still worth showing.
+Errors split by timing: returned from `RunStream` when nothing was produced,
+yielded inside the sequence when text had already arrived. A partial answer is
+usually still worth showing. `pipeline.Collect(seq)` accumulates a stream into
+an ordinary `*Response`, and `delta.Usage` is non-nil only on the final delta.
 
 ### Backend granularity
 
@@ -262,6 +231,7 @@ If your UI needs per-token updates, use the API backend. CLI backends need an
 explicit `Config.StreamParse`; the stream presets set one. Without it,
 `SendStream` buffers and yields a single delta rather than guessing which of a
 CLI's lines are answer text and which are protocol noise.
+
 
 ## Keeping context bounded
 
@@ -316,6 +286,50 @@ custom `Stage` returns an error/malformed short-circuit value. A panic from a
 custom stage is caller-owned and propagates; recover inside that stage if that
 is not desired.
 
+## Seeing what degraded
+
+Fail-open keeps a turn alive when an optimization breaks. That is right for
+availability and blind for operations: a dead cache backend degrades every
+request and, on its own, nothing says so.
+
+Implement `metrics.DegradationReporter` — an optional interface on `Recorder` —
+and each fail-open event reports itself:
+
+```go
+rec := metrics.DegradeFunc(baseRecorder, func(d metrics.Degradation) {
+	slog.Warn("agentkit degraded",
+		"stage", d.Stage, "reason", d.Reason, "detail", d.Detail, "err", d.Err)
+})
+kit := agentkit.New(client, config.WithMetrics(rec), ...)
+```
+
+`Reason` is short and stable, so it groups in a dashboard and works in an alert
+rule; `Err` and `Detail` carry the varying part. The library picks no logger,
+format or destination — it hands over a struct.
+
+Two more optional interfaces, ignored by recorders that do not implement them:
+
+| Interface | Gives you |
+|---|---|
+| `metrics.HistogramRecorder` | Per-stage latency (`metrics.StageLatency`) and context size after trimming |
+| `metrics.GaugeRecorder` | Values you derive yourself, e.g. cache hit rate |
+
+`metrics.NewObservability()` implements all three in memory for tests and
+dashboards. For production, `metrics/otel` is a nested module adapting the lot
+to OpenTelemetry:
+
+```go
+rec := otel.New(meterProvider.Meter("myservice"),
+	otel.WithDegradationHandler(func(d metrics.Degradation) { /* log it */ }))
+```
+
+See it end to end, including the case where everything is broken:
+
+```bash
+go run ./examples/observability
+go run ./examples/observability -break
+```
+
 ## Run the examples
 
 All examples except live CLI mode are safe to run without credentials:
@@ -326,6 +340,7 @@ go run ./examples/local-routing
 go run ./examples/coding-agent
 go run ./examples/cli-provider
 go run ./examples/streaming
+go run ./examples/observability
 go run ./benchmarks
 ```
 
@@ -349,13 +364,13 @@ CGO_ENABLED=0 go build ./...
 
 A healthy checkout reports:
 
-<!-- inventory:test-funcs=287 -->
-<!-- inventory:packages=27 -->
+<!-- inventory:test-funcs=312 -->
+<!-- inventory:packages=28 -->
 
 | Quantity | Value | Command |
 |---|---|---|
-| Test/Example functions | **287** | `grep -rhoE '^func (Test\|Example)[A-Za-z0-9_]*' --include='*_test.go' . \| wc -l` |
-| Packages in the root module | **27** | `go list ./... \| wc -l` |
+| Test/Example functions | **312** | `grep -rhoE '^func (Test\|Example)[A-Za-z0-9_]*' --include='*_test.go' . \| wc -l` |
+| Packages in the root module | **28** | `go list ./... \| wc -l` |
 | Failures | **0** | `go test -race -count=1 ./...` |
 
 Those numbers are enforced, not decorative: `inventory_test.go` reads the markers
