@@ -206,19 +206,49 @@ degradation log would have told you.
 - Instruments are memoised in the OTel adapter: agentkit asks for the same
   handful of names on every turn, and OTel instrument creation is not free.
 
-## Phase 8 — The deferred v1 items
+## Phase 8 — The deferred v1 items ✅ shipped
 
 Cheapest to close now that the surrounding machinery exists.
 
-- [ ] `compress.CodeCompressor`, AST-aware — Go via `go/ast` (stdlib, so it can
+- [x] `compress.CodeCompressor`, AST-aware — Go via `go/ast` (stdlib, so it can
       live in core). Other languages need tree-sitter, which is cgo, so they go
       in a nested module.
-- [ ] `stores/pgvector` integration tests against a real database in CI.
-- [ ] Semantic deduplication of retrieved chunks: near-identical chunks from
+- [x] `stores/pgvector` integration tests against a real database in CI.
+- [x] Lexical deduplication of retrieved chunks: near-identical chunks from
       different sources are common in RAG and currently all get sent.
-- [ ] More `providers`: OpenAI-compatible endpoints, Bedrock, Ollama. Note that
+- [x] More `providers`: OpenAI-compatible endpoints (which covers Ollama, vLLM, Groq, Together, OpenRouter, Azure). Bedrock is NOT done — it needs SigV4 and an AWS SDK, so it belongs in a nested module. Note that
       `CacheBreakpoints` is advisory for all of them — most providers cache
       automatically, so only the aligner's *reordering* carries over.
+
+**What the build taught us, beyond the plan:**
+
+- **"Semantic dedup" was renamed to lexical dedup, because that is what it is.**
+  Shingled Jaccard catches copies and near-copies — a README quoted in a wiki,
+  a doc comment mirrored in generated docs — and it will not catch a paraphrase.
+  Catching those needs embeddings and a comparison per pair. Shipping the
+  lexical version under the word "semantic" would have been a claim the code
+  does not support.
+- **Shingles, not word sets.** A bare word-set Jaccard scores "cache the prefix,
+  not the suffix" and "cache the suffix, not the prefix" as identical. There is
+  a test for exactly that.
+- **The code compressor verifies its own output.** It re-parses the result and
+  compares declaration counts against the input; if either check fails it
+  returns the original. Silently dropping a function would be the worst failure
+  available to a code compressor, because the caller cannot tell.
+- **Body elision is off by default.** It is a much larger saving and a much
+  larger loss: it answers "what is this package's API" and cannot answer "what
+  does this function do".
+- **Replacing the stub is a behaviour change for existing callers.** The
+  placeholder's docs told people to register it early to pin ordering; those
+  callers now get a compressor that actually claims Go chunks. The constructor
+  signature is unchanged, so nothing fails to compile — which is precisely why
+  it is called out here rather than left to be discovered.
+- **The pgvector CI job fails if its tests skip.** A credential-gated test that
+  skips looks identical to one that passes. The job exists to run them, so a
+  skip there is a failure — otherwise the coverage claim rots silently, which
+  is the same lesson as the inventory guard.
+- Bedrock was dropped from scope rather than half-built: SigV4 signing needs
+  the AWS SDK, which the stdlib-only core cannot take.
 
 ## Phase 9 — Adaptive behaviour (v2 territory)
 

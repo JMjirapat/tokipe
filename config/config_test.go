@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -179,5 +180,38 @@ func TestCustomStagesStayAfterHistory(t *testing.T) {
 	got := names(config.New(append(allOptions(), config.WithStage(stubStage{name: "custom"}))...).Stages())
 	if got[len(got)-1] != "cache_align" || got[len(got)-2] != "custom" {
 		t.Fatalf("order = %v; want [... history custom cache_align]", got)
+	}
+}
+
+// Dedupe must precede compression: comparing raw text is more reliable than
+// comparing text two compressors have already rewritten, and compressing a
+// chunk that is about to be dropped is wasted work.
+func TestDedupeRunsBeforeCompression(t *testing.T) {
+	got := names(config.New(append(allOptions(), config.WithChunkDedupe())...).Stages())
+
+	idx := func(name string) int {
+		for i, n := range got {
+			if n == name {
+				return i
+			}
+		}
+		return -1
+	}
+	dedupeAt, compressAt := idx("dedupe"), idx("compress")
+	if dedupeAt < 0 || compressAt < 0 {
+		t.Fatalf("missing stages in %v", got)
+	}
+	if dedupeAt > compressAt {
+		t.Fatalf("order = %v; want dedupe before compress", got)
+	}
+	// And still ahead of everything that reads the final layout.
+	if idx("dedupe") > idx("cache_align") {
+		t.Fatalf("order = %v; dedupe must precede alignment", got)
+	}
+}
+
+func TestDedupeIsOptional(t *testing.T) {
+	if got := names(config.New(allOptions()...).Stages()); slices.Contains(got, "dedupe") {
+		t.Errorf("dedupe should be off unless requested: %v", got)
 	}
 }

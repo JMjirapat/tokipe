@@ -4,7 +4,7 @@
 // impossible to get wrong. Callers declare *what* they want enabled; this
 // package decides the order:
 //
-//	preprocess → toolcache → rag → compress → history → custom → cache-align
+//	preprocess → toolcache → rag → dedupe → compress → history → custom → cache-align
 //
 // RAG must precede compress, and both must precede cache alignment, because a
 // cache breakpoint placed after per-turn content poisons the provider-side
@@ -45,6 +45,10 @@ type Config struct {
 	TopK     int
 
 	Compressors []compress.Compressor
+
+	// Chunk deduplication. Enabled by WithChunkDedupe.
+	DedupeEnabled bool
+	DedupeOpts    []compress.DedupeOption
 
 	// History budget enforcement. Enabled only when HistoryPolicy has a
 	// non-zero budget for at least one turn type.
@@ -111,6 +115,25 @@ func WithCompression(compressors ...compress.Compressor) Option {
 // stricter detector), then conservative prose whitespace collapsing.
 func WithDefaultCompression() Option {
 	return WithCompression(compress.NewJSONCompressor(), compress.NewTextCompressor())
+}
+
+// WithChunkDedupe drops retrieved chunks that duplicate one already kept.
+//
+// Retrieval routinely returns the same passage more than once — a README quoted
+// in a wiki, a doc comment mirrored in generated docs — and every copy costs
+// full price while telling the model nothing new.
+//
+// It runs BEFORE compression: comparing raw text is more reliable than
+// comparing text two compressors have already rewritten, and it means
+// compression is never spent on a chunk that is about to be discarded.
+//
+// Similarity is lexical (shingled Jaccard), so it catches copies and near
+// copies, not paraphrases. See package compress for the trade-off.
+func WithChunkDedupe(opts ...compress.DedupeOption) Option {
+	return func(c *Config) {
+		c.DedupeEnabled = true
+		c.DedupeOpts = append(c.DedupeOpts, opts...)
+	}
 }
 
 // WithHistoryBudget trims the conversation to fit policy before the prompt is
@@ -182,7 +205,15 @@ func (c Config) Stages() []pipeline.Stage {
 		stages = append(stages, rag.NewStageWith(c.Embedder, c.Store, c.TopK, rag.WithMetrics(rec)))
 	}
 
-	// 4. Shrink what retrieval produced — MUST precede alignment.
+	// 4a. Drop duplicate chunks BEFORE compressing them: comparing raw text is
+	//     more reliable than comparing already-rewritten text, and compression
+	//     spent on a chunk about to be discarded is wasted.
+	if c.DedupeEnabled {
+		opts := append([]compress.DedupeOption{compress.WithDedupeMetrics(rec)}, c.DedupeOpts...)
+		stages = append(stages, compress.NewDedupeStage(opts...))
+	}
+
+	// 4b. Shrink what retrieval produced — MUST precede alignment.
 	if len(c.Compressors) > 0 {
 		stages = append(stages, compress.NewStageWithMetrics(rec, c.Compressors...))
 	}

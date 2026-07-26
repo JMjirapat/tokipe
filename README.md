@@ -129,6 +129,26 @@ optimizations still apply. `cli.Client` supports incremental stdout parsing
 when `Config.StreamParse` is configured; the standard presets otherwise use
 the safe one-delta fallback through `RunStream`.
 
+### OpenAI-compatible servers
+
+```go
+client, err := openai.New(openai.Config{
+	APIKey:  os.Getenv("OPENAI_API_KEY"),
+	BaseURL: "https://api.openai.com/v1", // or any compatible server
+	Model:   "gpt-4o-mini",
+})
+```
+
+One adapter covers OpenAI, Ollama, vLLM, llama.cpp, Groq, Together, OpenRouter,
+LM Studio and Azure OpenAI — what differs between them is a base URL, a model
+name and a header, none of which needs a separate Go type. `APIKey` is optional,
+because local servers do not use one. Streaming is supported.
+
+`CacheBreakpoints` are advisory here and are not transmitted: these servers have
+no `cache_control` field, and those that cache do it automatically on the
+longest matching prefix. Cache alignment still helps by keeping that prefix
+stable — it just cannot be told about it.
+
 ### Your own provider
 
 Implement two methods:
@@ -147,7 +167,8 @@ type ModelClient interface {
 | Preprocess | `config.WithPreprocess` | Answers deterministic requests without an LLM |
 | Tool cache | `config.WithToolCache` | Reuses identical tool results and coalesces concurrent misses |
 | RAG | `config.WithRAG` | Embeds the query and retrieves top-K chunks |
-| Compression | `config.WithDefaultCompression` | Minifies JSON and collapses redundant prose whitespace |
+| Compression | `config.WithDefaultCompression` | Minifies JSON, collapses prose whitespace, strips Go comments via `go/ast` |
+| Chunk dedupe | `config.WithChunkDedupe` | Drops retrieved chunks that duplicate one already kept |
 | Cache alignment | `config.WithCacheAlignment` | Keeps static prompt content first and emits safe breakpoints |
 | Routing | `config.WithRouter` | Selects the cheapest suitable model after prompt shaping |
 | Metrics | `config.WithMetrics` | Provider-neutral counters, plus optional histograms, gauges and degradation events; no-op by default |
@@ -364,13 +385,13 @@ CGO_ENABLED=0 go build ./...
 
 A healthy checkout reports:
 
-<!-- inventory:test-funcs=312 -->
-<!-- inventory:packages=28 -->
+<!-- inventory:test-funcs=358 -->
+<!-- inventory:packages=29 -->
 
 | Quantity | Value | Command |
 |---|---|---|
-| Test/Example functions | **312** | `grep -rhoE '^func (Test\|Example)[A-Za-z0-9_]*' --include='*_test.go' . \| wc -l` |
-| Packages in the root module | **28** | `go list ./... \| wc -l` |
+| Test/Example functions | **358** | `grep -rhoE '^func (Test\|Example)[A-Za-z0-9_]*' --include='*_test.go' . \| wc -l` |
+| Packages in the root module | **29** | `go list ./... \| wc -l` |
 | Failures | **0** | `go test -race -count=1 ./...` |
 
 Those numbers are enforced, not decorative: `inventory_test.go` reads the markers

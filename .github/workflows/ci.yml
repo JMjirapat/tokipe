@@ -66,3 +66,50 @@ jobs:
           go build ./...
           go vet ./...
           go test -race ./...
+
+  # pgvector against a real database. Kept separate from the matrix above so a
+  # service container is only started for the one module that needs it, and so
+  # a database outage cannot fail the other two modules' builds.
+  pgvector-integration:
+    name: pgvector integration (real database)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        # Without this the job races the container: Go connects before Postgres
+        # is accepting connections and the run fails for the wrong reason.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: run the integration tests
+        working-directory: stores/pgvector
+        env:
+          AGENTKIT_PGVECTOR_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+        run: |
+          go test -race -count=1 -run TestIntegration -v ./...
+      - name: fail if the integration tests were skipped
+        working-directory: stores/pgvector
+        env:
+          AGENTKIT_PGVECTOR_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+        # A skipped credential-gated test looks identical to a passing one in
+        # CI output. This job exists specifically to run them, so a skip here is
+        # a failure — otherwise the coverage claim silently rots.
+        run: |
+          out=$(go test -count=1 -run TestIntegration -v ./... 2>&1)
+          echo "$out"
+          if echo "$out" | grep -q -- "--- SKIP"; then
+            echo "::error::pgvector integration tests were skipped in the job that exists to run them"
+            exit 1
+          fi

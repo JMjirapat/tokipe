@@ -231,16 +231,183 @@ func TestTextCompressor_EmptyAndGarbage(t *testing.T) {
 
 // --- CodeCompressor --------------------------------------------------------
 
-func TestCodeCompressor_IsAStub(t *testing.T) {
+const sampleGo = `package main
+
+// Package-level documentation that costs tokens and changes nothing.
+import (
+	"fmt" // the standard formatter
+	"strings"
+)
+
+// Greeter greets. This comment is the point of the test: it must go.
+type Greeter struct {
+	// Name is who to greet.
+	Name string
+}
+
+// Greet returns a greeting.
+//
+// A long doc comment, of the kind real Go source is full of, which the
+// compressor should remove without touching the code below it.
+func (g Greeter) Greet() string {
+	// A URL in a comment: https://example.com/a//b
+	prefix := "// not a comment" // but this is
+	return prefix + fmt.Sprintf("Hello, %s", strings.TrimSpace(g.Name))
+}
+`
+
+func TestCodeCompressor_RemovesCommentsAndKeepsCode(t *testing.T) {
 	c := NewCodeCompressor()
-	for _, in := range []string{"", "func main() {}", "class A {}", "{\n\tvalid: json\n}"} {
+	if !c.CanHandle(sampleGo) {
+		t.Fatal("valid Go was not claimed")
+	}
+
+	got, err := c.Compress(sampleGo)
+	if err != nil {
+		t.Fatalf("Compress: %v", err)
+	}
+	if len(got) >= len(sampleGo) {
+		t.Errorf("no saving: %d -> %d bytes", len(sampleGo), len(got))
+	}
+	for _, gone := range []string{"Package-level documentation", "the standard formatter", "who to greet", "A long doc comment"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("comment survived: %q", gone)
+		}
+	}
+	// The string literal that looks like a comment must be untouched. This is
+	// the case a regex-based implementation gets wrong.
+	if !strings.Contains(got, `"// not a comment"`) {
+		t.Errorf("a string literal resembling a comment was mangled:\n%s", got)
+	}
+	for _, kept := range []string{"type Greeter struct", "func (g Greeter) Greet() string", "strings.TrimSpace"} {
+		if !strings.Contains(got, kept) {
+			t.Errorf("code was lost: %q missing from\n%s", kept, got)
+		}
+	}
+}
+
+// Raw string literals are the other thing a regex implementation destroys.
+func TestCodeCompressor_PreservesRawStringsAndBlankLines(t *testing.T) {
+	src := "package p\n\nvar Doc = `\nline one\n\n// this is data, not a comment\n\nline two\n`\n\nfunc f() int { return 1 }\n"
+
+	c := NewCodeCompressor()
+	if !c.CanHandle(src) {
+		t.Fatal("valid Go was not claimed")
+	}
+	got, err := c.Compress(src)
+	if err != nil {
+		t.Fatalf("Compress: %v", err)
+	}
+	for _, kept := range []string{"line one", "line two", "// this is data, not a comment"} {
+		if !strings.Contains(got, kept) {
+			t.Errorf("raw string content lost: %q missing from\n%s", kept, got)
+		}
+	}
+}
+
+func TestCodeCompressor_OutputIsStillValidGo(t *testing.T) {
+	c := NewCodeCompressor()
+	got, err := c.Compress(sampleGo)
+	if err != nil {
+		t.Fatalf("Compress: %v", err)
+	}
+	if _, err := parseGo(got); err != nil {
+		t.Fatalf("compressed output does not parse:\n%s\nerr: %v", got, err)
+	}
+}
+
+func TestCodeCompressor_RejectsNonGo(t *testing.T) {
+	c := NewCodeCompressor()
+	for _, in := range []string{
+		"",
+		"   ",
+		"func main() {}",                         // a fragment, not a file
+		"class A {}\nint x;\nvoid f(){}\n{}\n{}", // Java-ish
+		"{\n\t\"valid\": \"json\"\n}",
+		"package but then nonsense ][",
+	} {
 		if c.CanHandle(in) {
-			t.Errorf("v1 CodeCompressor must never claim content, claimed %q", in)
+			t.Errorf("claimed content that is not a Go file: %q", in)
 		}
-		got, err := c.Compress(in)
-		if err != nil || got != in {
-			t.Errorf("Compress(%q) = %q, %v; want passthrough", in, got, err)
-		}
+	}
+}
+
+// Compress on unclaimed content returns an error, which the Stage treats as
+// "leave the chunk alone". That is the documented contract for every
+// compressor, and it is why CanHandle is the gate.
+func TestCodeCompressor_CompressErrorsOnNonGo(t *testing.T) {
+	if _, err := NewCodeCompressor().Compress("not go at all"); err == nil {
+		t.Error("want an error for non-Go input")
+	}
+}
+
+func TestCodeCompressor_BodyElisionKeepsTheAPI(t *testing.T) {
+	c := NewCodeCompressor(WithBodyElision())
+	got, err := c.Compress(sampleGo)
+	if err != nil {
+		t.Fatalf("Compress: %v", err)
+	}
+
+	plain, _ := NewCodeCompressor().Compress(sampleGo)
+	if len(got) >= len(plain) {
+		t.Errorf("body elision saved nothing beyond comment removal: %d vs %d", len(got), len(plain))
+	}
+	if !strings.Contains(got, "func (g Greeter) Greet() string") {
+		t.Errorf("the signature must survive:\n%s", got)
+	}
+	if strings.Contains(got, "strings.TrimSpace") {
+		t.Errorf("the body should be gone:\n%s", got)
+	}
+	if _, err := parseGo(got); err != nil {
+		t.Fatalf("elided output does not parse:\n%s\nerr: %v", got, err)
+	}
+}
+
+// Nothing to remove means nothing to gain, and the compressor must not return
+// a re-formatted file that happens to be the same size or bigger.
+func TestCodeCompressor_NoWinReturnsOriginal(t *testing.T) {
+	src := "package p\n\nfunc a() {}\nfunc b() {}\nfunc c() {}\n"
+	got, err := NewCodeCompressor().Compress(src)
+	if err != nil {
+		t.Fatalf("Compress: %v", err)
+	}
+	if len(got) > len(src) {
+		t.Errorf("output grew: %d -> %d\n%s", len(src), len(got), got)
+	}
+}
+
+func TestCodeCompressor_MinLines(t *testing.T) {
+	short := "package p\nfunc f() {}\n"
+	if NewCodeCompressor().CanHandle(short) {
+		t.Error("a file below the line threshold should be skipped")
+	}
+	if !NewCodeCompressor(WithMinLines(1)).CanHandle(short) {
+		t.Error("lowering the threshold should let it through")
+	}
+}
+
+// The declaration count is the guard against the worst failure available to a
+// code compressor: silently dropping a function.
+func TestCodeCompressor_NeverLosesDeclarations(t *testing.T) {
+	got, err := NewCodeCompressor().Compress(sampleGo)
+	if err != nil {
+		t.Fatalf("Compress: %v", err)
+	}
+	in, _ := parseGo(sampleGo)
+	out, _ := parseGo(got)
+	if declCount(in) != declCount(out) {
+		t.Errorf("declarations changed: %d -> %d", declCount(in), declCount(out))
+	}
+}
+
+func TestCodeCompressor_DoesNotPanicOnArbitraryBytes(t *testing.T) {
+	c := NewCodeCompressor()
+	for _, in := range []string{
+		"\x00\x01\x02", strings.Repeat("package ", 500), "package\n\n\n\n\n",
+		"package p\nfunc f() { // unterminated", "สวัสดี\nชาวโลก\n\n\n\n",
+	} {
+		_ = c.CanHandle(in)
+		_, _ = c.Compress(in)
 	}
 }
 
