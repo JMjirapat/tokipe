@@ -47,11 +47,11 @@ var corpus = []pipeline.Chunk{
 	},
 	{
 		SourceURL: "https://docs.example.com/retries",
-		Content: "Retries    are   expected.\n\n\n   Clients SHOULD retry on 429 and 5xx\n\n   using exponential backoff with jitter.    ",
+		Content:   "Retries    are   expected.\n\n\n   Clients SHOULD retry on 429 and 5xx\n\n   using exponential backoff with jitter.    ",
 	},
 	{
 		SourceURL: "https://docs.example.com/auth",
-		Content: "Authentication     uses    an API key   passed in the x-api-key header.\n\n\nKeys are scoped per project.",
+		Content:   "Authentication     uses    an API key   passed in the x-api-key header.\n\n\nKeys are scoped per project.",
 	},
 }
 

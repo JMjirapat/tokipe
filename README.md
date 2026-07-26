@@ -161,6 +161,23 @@ go run ./examples/coding-agent    # every stage wired into one agent loop
 go run ./benchmarks               # measures billed input tokens, baseline vs agentkit
 ```
 
+One more needs no mocks and no key — it drives a real CLI agent:
+
+```bash
+go run ./examples/cli-provider              # dry run: prints what would be sent
+go run ./examples/cli-provider -live        # actually invokes the CLI
+go run ./examples/cli-provider -live -cli codex
+```
+
+Dry run is the default because a live run spends subscription quota. It still
+executes every stage and intercepts only the final `Send`, so it shows which
+turns would have reached the CLI and the exact prompt each would carry. With no
+CLI installed it prints an explanation and exits 0, which is why CI can run it.
+
+A live run against `claude` shows where the savings come from with this
+backend: three of seven turns are answered by preprocess rules in microseconds
+and never start a process at all, while the turns that do run take ~6s each.
+
 The benchmark is the acceptance test for the headline claim. On a synthetic
 12-turn workload (growing history, repeated tool calls, retrieval, and some
 deterministic turns) it currently reports:

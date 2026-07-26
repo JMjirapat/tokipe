@@ -12,6 +12,7 @@ import (
 
 	"agentkit/pipeline"
 	"agentkit/providers/cli"
+	"agentkit/toolcache"
 )
 
 // The tests drive a fake CLI by re-executing this test binary with
@@ -282,5 +283,52 @@ func TestImplementsModelClient(t *testing.T) {
 func TestRenderPromptOnEmptyRequest(t *testing.T) {
 	if got := cli.RenderPrompt(&pipeline.Request{}); got != "" {
 		t.Errorf("empty request should render empty, got %q", got)
+	}
+}
+
+func TestRenderPromptIncludesCachedToolResults(t *testing.T) {
+	req := &pipeline.Request{Query: "summarize"}
+	req.SetMeta(toolcache.MetaResults, map[string]any{
+		"hash-b": "second result",
+		"hash-a": "first result",
+	})
+
+	got := cli.RenderPrompt(req)
+	for _, want := range []string{"<tool_results>", "first result", "second result", "</tool_results>"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("prompt missing %q:\n%s", want, got)
+		}
+	}
+	// Results must precede the query, like every other piece of context.
+	if strings.Index(got, "first result") > strings.Index(got, "summarize") {
+		t.Error("tool results must come before the query")
+	}
+}
+
+// Map iteration order must not leak into the prompt, or an otherwise identical
+// turn renders differently each run and defeats the backend's own prefix cache.
+func TestRenderPromptIsDeterministicAcrossMapOrder(t *testing.T) {
+	results := map[string]any{}
+	for i := range 20 {
+		results[fmt.Sprintf("hash-%02d", i)] = fmt.Sprintf("result %d", i)
+	}
+
+	req := &pipeline.Request{Query: "q"}
+	req.SetMeta(toolcache.MetaResults, results)
+
+	first := cli.RenderPrompt(req)
+	for range 50 {
+		if got := cli.RenderPrompt(req); got != first {
+			t.Fatal("RenderPrompt is not deterministic across map iteration order")
+		}
+	}
+}
+
+func TestRenderPromptIgnoresMalformedToolResults(t *testing.T) {
+	req := &pipeline.Request{Query: "q"}
+	req.SetMeta(toolcache.MetaResults, "not a map")
+
+	if got := cli.RenderPrompt(req); got != "q" {
+		t.Errorf("a malformed results value must be skipped, got %q", got)
 	}
 }

@@ -40,10 +40,12 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
 	"agentkit/pipeline"
+	"agentkit/toolcache"
 )
 
 // PromptPlaceholder is replaced by the rendered prompt in Config.Args when
@@ -253,9 +255,32 @@ func RenderPrompt(req *pipeline.Request) string {
 		}
 		b.WriteString("</context>\n")
 	}
+
+	// Tool results the toolcache stage already resolved. Without this the CLI
+	// has no idea the work was done and will try to redo it with its own
+	// tools — which is both slower and the opposite of what the cache is for.
+	if results, ok := req.Metadata[toolcache.MetaResults].(map[string]any); ok && len(results) > 0 {
+		b.WriteString("\n<tool_results>\n")
+		for _, key := range sortedKeys(results) {
+			fmt.Fprintf(&b, "%v\n", results[key])
+		}
+		b.WriteString("</tool_results>\n")
+	}
 	if req.Query != "" {
 		b.WriteString("\n")
 		b.WriteString(req.Query)
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// sortedKeys keeps the rendered prompt byte-identical for identical input.
+// Map iteration order would otherwise vary per run and defeat any prefix
+// caching the backend does on its own.
+func sortedKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
