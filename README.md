@@ -153,6 +153,7 @@ type ModelClient interface {
 | Metrics | `config.WithMetrics` | Reports provider-neutral counters; no-op by default |
 | Custom stage | `config.WithStage` | Adds caller-owned request processing before alignment |
 | Lazy loading | caller-managed `lazyload.Loader` | Resolves protected file/content references on demand |
+| History budget | `config.WithHistoryBudget` | Trims the conversation to fit a per-turn-type token budget |
 | Budget policy | caller-managed `budget.Policy` | Classifies turns and supplies recommended token budgets |
 | Streaming | `kit.RunStream` instead of `kit.Run` | Delivers the answer incrementally; every stage still runs first |
 
@@ -262,6 +263,43 @@ explicit `Config.StreamParse`; the stream presets set one. Without it,
 `SendStream` buffers and yields a single delta rather than guessing which of a
 CLI's lines are answer text and which are protocol noise.
 
+## Keeping context bounded
+
+A long agent loop's dominant cost is history that never stops growing.
+`WithHistoryBudget` enforces the budget `budget.Policy` already described:
+
+```go
+kit := agentkit.New(client,
+	config.WithHistoryBudget(budget.DefaultPolicy(), nil), // nil = char estimate
+	config.WithCacheAlignment(),
+)
+req.TurnType = budget.Classify(req) // budgets vary by turn type
+```
+
+Measured over 100 turns (`go run ./benchmarks`, long-loop section): 195,691 →
+88,930 billed tokens, peak request 1,192 against a 1,200 limit.
+
+What it will not do, by design:
+
+- **It never touches static content.** That is the prefix cache alignment anchors
+  to; moving one byte of it forfeits every cache hit, which costs more than the
+  tokens trimming saved.
+- **It never drops the newest message.** That is the question being asked.
+- **It trims the middle, not the oldest.** Dropping from the front changes the
+  first non-static bytes every turn, so providers that cache on longest-common-
+  prefix never get a hit. Head and tail survive; `WithRetention` sets how much.
+
+If it cannot fit the budget without breaking those rules, it leaves the request
+alone and reports `history.over_budget` rather than trimming something it
+promised not to.
+
+For an exact count instead of an estimate, pass a provider-backed counter —
+`anthropic.NewTokenCounter(client)` calls `/v1/messages/count_tokens` and
+memoises per string, since a trimming pass re-measures unchanged history every
+turn. It costs a round trip; the estimator costs nothing and is systematically
+wrong on code and CJK. Use the exact counter when trimming against a hard
+context limit, the estimator when trimming for cost.
+
 ## Failure contract
 
 Built-in optimizations fail open:
@@ -311,13 +349,13 @@ CGO_ENABLED=0 go build ./...
 
 A healthy checkout reports:
 
-<!-- inventory:test-funcs=260 -->
-<!-- inventory:packages=26 -->
+<!-- inventory:test-funcs=287 -->
+<!-- inventory:packages=27 -->
 
 | Quantity | Value | Command |
 |---|---|---|
-| Test/Example functions | **260** | `grep -rhoE '^func (Test\|Example)[A-Za-z0-9_]*' --include='*_test.go' . \| wc -l` |
-| Packages in the root module | **26** | `go list ./... \| wc -l` |
+| Test/Example functions | **287** | `grep -rhoE '^func (Test\|Example)[A-Za-z0-9_]*' --include='*_test.go' . \| wc -l` |
+| Packages in the root module | **27** | `go list ./... \| wc -l` |
 | Failures | **0** | `go test -race -count=1 ./...` |
 
 Those numbers are enforced, not decorative: `inventory_test.go` reads the markers

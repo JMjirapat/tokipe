@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"agentkit/budget"
 	"agentkit/cache"
 	"agentkit/compress"
 	"agentkit/config"
@@ -45,6 +46,7 @@ func allOptions() []config.Option {
 		config.WithToolCache(toolcache.NewMemoryCache(), exec, time.Minute),
 		config.WithRAG(mock.NewEmbedder(mock.DefaultDim), mock.NewStore(), 3),
 		config.WithDefaultCompression(),
+		config.WithHistoryBudget(budget.DefaultPolicy(), nil),
 		config.WithCacheAlignment(),
 	}
 }
@@ -53,7 +55,7 @@ func allOptions() []config.Option {
 // wrong. Retrieval must precede compression, and both must precede cache
 // alignment (spec §2.4.3, §2.4.6).
 func TestStagesAreInTheRequiredOrder(t *testing.T) {
-	want := []string{"preprocess", "toolcache", "rag", "compress", "cache_align"}
+	want := []string{"preprocess", "toolcache", "rag", "compress", "history", "cache_align"}
 	got := names(config.New(allOptions()...).Stages())
 	if !equal(got, want) {
 		t.Fatalf("stage order = %v, want %v", got, want)
@@ -95,10 +97,11 @@ func TestZeroConfigIsPassThrough(t *testing.T) {
 
 func TestPartialConfigOnlyEnablesWhatIsSupplied(t *testing.T) {
 	cases := map[string][]config.Option{
-		"rag needs both embedder and store": {config.WithRAG(mock.NewEmbedder(mock.DefaultDim), nil, 3)},
-		"toolcache needs an executor":       {config.WithToolCache(toolcache.NewMemoryCache(), nil, 0)},
-		"toolcache needs a cache":           {config.WithToolCache(nil, func(context.Context, pipeline.ToolCall) (any, error) { return nil, nil }, 0)},
-		"no compressors, no stage":          {config.WithCompression()},
+		"rag needs both embedder and store":      {config.WithRAG(mock.NewEmbedder(mock.DefaultDim), nil, 3)},
+		"toolcache needs an executor":            {config.WithToolCache(toolcache.NewMemoryCache(), nil, 0)},
+		"toolcache needs a cache":                {config.WithToolCache(nil, func(context.Context, pipeline.ToolCall) (any, error) { return nil, nil }, 0)},
+		"no compressors, no stage":               {config.WithCompression()},
+		"an empty budget policy enables nothing": {config.WithHistoryBudget(budget.Policy{}, nil)},
 	}
 	for name, opts := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -145,4 +148,36 @@ type stubStage struct{ name string }
 func (s stubStage) Name() string { return s.name }
 func (s stubStage) Process(_ context.Context, r *pipeline.Request) (*pipeline.Request, error) {
 	return r, nil
+}
+
+// History trimming must sit after compression (it needs the final payload size)
+// and before alignment (which places breakpoints over the final layout).
+// Getting this wrong is silent: alignment would anchor to content trimming then
+// removed.
+func TestHistoryTrimsAfterCompressionAndBeforeAlignment(t *testing.T) {
+	got := names(config.New(allOptions()...).Stages())
+
+	idx := func(name string) int {
+		for i, n := range got {
+			if n == name {
+				return i
+			}
+		}
+		return -1
+	}
+	compressAt, historyAt, alignAt := idx("compress"), idx("history"), idx("cache_align")
+	if compressAt < 0 || historyAt < 0 || alignAt < 0 {
+		t.Fatalf("missing stages in %v", got)
+	}
+	if !(compressAt < historyAt && historyAt < alignAt) {
+		t.Fatalf("order = %v; want compress < history < cache_align", got)
+	}
+}
+
+// A custom stage still cannot get between history and alignment.
+func TestCustomStagesStayAfterHistory(t *testing.T) {
+	got := names(config.New(append(allOptions(), config.WithStage(stubStage{name: "custom"}))...).Stages())
+	if got[len(got)-1] != "cache_align" || got[len(got)-2] != "custom" {
+		t.Fatalf("order = %v; want [... history custom cache_align]", got)
+	}
 }

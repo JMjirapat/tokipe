@@ -67,7 +67,7 @@ path; `go test -race` green.
 - The non-streaming request body is unchanged: `stream` is `omitempty`, because
   a changed body would change the prefix the provider hashes for its cache.
 
-## Phase 6 — Context budget enforcement
+## Phase 6 — Context budget enforcement ✅ shipped
 
 **Gap found in the shipped code, not the spec.** `budget.Policy.BudgetFor`
 returns a number and *nothing consumes it* — the only caller in the tree is an
@@ -79,25 +79,62 @@ tool use, growing context" (§1.5.1) — unbounded history is the dominant cost.
 This is the largest remaining token win in the library, larger than anything
 v1 shipped.
 
-- [ ] `history.Stage` that fits a request to `Policy.BudgetFor(TurnType)`:
+- [x] `history.Stage` that fits a request to `Policy.BudgetFor(TurnType)`:
       drop or summarise oldest turns, always preserving the static prefix.
-- [ ] **Must not break cache alignment.** Trimming from the front changes the
+- [x] **Must not break cache alignment.** Trimming from the front changes the
       prefix and invalidates the provider cache on the very turn it trims.
       Trim from the middle-out, keeping the static prefix byte-identical, and
       test that property explicitly — this is the same non-negotiable rule as
       §2.4.6 seen from the other side.
-- [ ] Ordering: after `toolcache`, before `cache.Aligner`. `config.Stages()`
+- [x] Ordering: after `toolcache`, before `cache.Aligner`. `config.Stages()`
       owns it as usual.
-- [ ] A real token counter behind an interface (`TokenCounter`), with a
+- [x] A real token counter behind an interface (`TokenCounter`), with a
       char-estimate default and a provider-backed implementation
       (`/v1/messages/count_tokens`) in the anthropic package. The benchmark's
       4-chars-per-token estimate becomes a fallback rather than the only option.
-- [ ] Tool results already resolved should be summarisable too — verbose tool
+- [ ] *Deferred:* tool results should be summarisable too — verbose tool
       output is a large share of an agent loop's context.
 
-**DoD:** a 100-turn synthetic agent loop stays under a fixed budget; the static
-prefix is byte-identical across every turn; the benchmark reports the
-additional saving separately from v1's.
+**DoD met.** Measured by `go run ./benchmarks`, long-loop section:
+
+```
+100 turns, growing context
+  no budget      : 195691 billed tokens, peak request 4039 tokens
+  history budget :  88930 billed tokens, peak request 1192 tokens (limit 1200)
+  reduction      : 54.6%, 185 messages dropped
+```
+
+The static prefix is byte-identical across all 100 turns
+(`TestHundredTurnLoopStaysUnderBudgetWithAStablePrefix`).
+
+**What the build taught us, beyond the plan:**
+
+- **The roadmap's "middle-out" instinct was right for a reason it did not
+  state.** Trimming the oldest turns is the obvious move and it destroys
+  automatic prefix caching: providers match the longest common prefix, so
+  changing the first non-static bytes means nothing is ever reused. Head and
+  tail are kept; the middle goes.
+- **Phase 6 adds nothing to the v1 headline workload, and the benchmark says
+  so.** Twelve turns with short replies never reach the budget: `+0.0 pp`. The
+  long-loop section was added rather than tuning the budget down to manufacture
+  a number on a workload the optimization was not built for.
+- **A summariser needs reserved headroom or it can never fire.** Trimming stops
+  the instant the request fits, leaving no room for the summary, which is then
+  rejected for pushing back over budget — every time. Trimming now targets
+  `limit - reserve` while the summary is checked against the real limit.
+- **The stage mutates the Request in place, like every other stage.** The first
+  version returned a copy, which looked safer and was worse: the caller's own
+  pointer never saw the trim, so the metadata it wrote was invisible and the
+  benchmark measured the untrimmed request while billing the trimmed one.
+  Safety comes from building new slices, not from copying the Request.
+- **Fixing the benchmark exposed a near-miss of my own.** Rewriting the arm's
+  loop briefly stopped recording the user query in the agentkit arm while the
+  baseline still did, inflating the headline from 57.1% to 67.4% for no real
+  reason. Both arms must record identical content or the comparison is
+  worthless — the exact failure QA had flagged as worth scrutinising.
+- Tool-result summarisation is deferred rather than done badly: the results live
+  in `Metadata` as arbitrary `any`, and truncating them safely needs a contract
+  about their shape that does not exist yet.
 
 ## Phase 7 — Production observability
 

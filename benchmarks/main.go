@@ -40,7 +40,9 @@ import (
 	"time"
 
 	"agentkit"
+	"agentkit/budget"
 	"agentkit/config"
+	"agentkit/history"
 	"agentkit/metrics"
 	"agentkit/pipeline"
 	"agentkit/router"
@@ -57,15 +59,27 @@ const (
 
 func main() {
 	base := run("baseline (no agentkit)", baselineArm)
-	opt := run("agentkit (full pipeline)", agentkitArm)
+	opt := run("agentkit v1 (full pipeline)", agentkitArm)
+	// Phase 6 is measured as a separate arm so its contribution is visible on
+	// its own rather than folded into the v1 headline. On this workload the
+	// conversation is only 12 turns, so trimming has little to bite on — a
+	// 100-turn loop is where it earns its keep. Reporting the small number is
+	// the point: an optimization that helps elsewhere should not be credited
+	// with a saving it did not produce here.
+	trimmed := run("agentkit + history budget", historyArm)
 
 	fmt.Printf("\n%s\n", strings.Repeat("═", 64))
 	report("baseline", base)
 	report("agentkit", opt)
 
+	report("+history", trimmed)
 	reduction := 100 * (1 - opt.billed/base.billed)
+	withHistory := 100 * (1 - trimmed.billed/base.billed)
 	fmt.Printf("\n  billed input tokens : %.0f → %.0f\n", base.billed, opt.billed)
 	fmt.Printf("  reduction           : %.1f%%   (target ≥ %.0f%%)\n", reduction, targetReduction)
+	fmt.Printf("  with history budget : %.1f%%   (Phase 6 adds %+.1f pp here)\n",
+		withHistory, withHistory-reduction)
+	fmt.Printf("  history dropped     : %d messages across %d turns\n", trimmed.dropped, trimmed.turns)
 	fmt.Printf("  turns short-circuited: %d/%d (%.0f%%)\n",
 		opt.shortCircuited, opt.turns, 100*float64(opt.shortCircuited)/float64(opt.turns))
 	fmt.Printf("  LLM calls avoided    : %d\n", base.calls-opt.calls)
@@ -76,6 +90,8 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Printf("\nPASS: %.1f%% ≥ %.0f%%\n", reduction, targetReduction)
+
+	measureLongLoop()
 }
 
 type result struct {
@@ -84,6 +100,7 @@ type result struct {
 	turns          int
 	shortCircuited int
 	toolExecs      int
+	dropped        int
 }
 
 func report(label string, r result) {
@@ -220,7 +237,28 @@ func baselineArm(m *meter) result {
 	return r
 }
 
+// historyArm is agentkitArm plus budget enforcement, so the two differ by
+// exactly one option and the delta is attributable.
+func historyArm(m *meter) result {
+	r, dropped := agentkitArmWith(m, config.WithHistoryBudget(
+		budget.Policy{
+			RoutineStepBudget:   400,
+			NewQuestionBudget:   700,
+			ErrorRecoveryBudget: 900,
+		},
+		nil, // CharEstimator: the benchmark has no provider to ask
+		history.WithSummarizer(history.ElisionSummarizer()),
+	))
+	r.dropped = dropped
+	return r
+}
+
 func agentkitArm(m *meter) result {
+	r, _ := agentkitArmWith(m)
+	return r
+}
+
+func agentkitArmWith(m *meter, extra ...config.Option) (result, int) {
 	execs := 0
 	exec := func(_ context.Context, call pipeline.ToolCall) (any, error) {
 		execs++
@@ -230,7 +268,7 @@ func agentkitArm(m *meter) result {
 	store := storemock.NewStore()
 	store.Add(storemock.DefaultDim, corpus...)
 
-	kit := agentkit.New(m,
+	opts := []config.Option{
 		config.WithMetrics(metrics.NewInMemory()),
 		config.WithPreprocess(shaRule{}),
 		config.WithToolCache(toolcache.NewMemoryCache(), exec, time.Hour),
@@ -238,18 +276,21 @@ func agentkitArm(m *meter) result {
 		config.WithDefaultCompression(),
 		config.WithCacheAlignment(),
 		config.WithRouter(router.NewHeuristicRouter(router.Tier{Client: m, MaxComplexity: 1.0})),
-	)
+	}
+	kit := agentkit.New(m, append(opts, extra...)...)
 
-	history := []pipeline.Message{{Role: "system", Content: systemPrompt, Static: true}}
+	convo := []pipeline.Message{{Role: "system", Content: systemPrompt, Static: true}}
 	r := result{}
+	dropped := 0
 
 	for _, t := range workload() {
 		r.turns++
 		req := &pipeline.Request{
 			Query:          t.query,
-			Messages:       history,
+			Messages:       convo,
 			NeedsRetrieval: t.needsRetrieval,
 			ToolCalls:      t.toolCalls,
+			TurnType:       budget.Classify(&pipeline.Request{Query: t.query, ToolCalls: t.toolCalls}),
 		}
 
 		resp, err := kit.Run(context.Background(), req)
@@ -259,11 +300,103 @@ func agentkitArm(m *meter) result {
 		if resp.ShortCircuited {
 			r.shortCircuited++
 		}
-		history = append(history,
+		if n, ok := req.Metadata[history.MetaDropped].(int); ok {
+			dropped += n
+		}
+		// Continue from what was actually sent, so trimming compounds the way it
+		// would in a real agent rather than resetting each turn.
+		//
+		// Both the query and the reply are appended, exactly as the baseline arm
+		// does. An earlier version of this loop appended only the reply, which
+		// made the conversation grow slower in this arm than in the baseline and
+		// inflated the headline from 57.4% to 67.4% for no real reason. The arms
+		// must record identical content or the comparison means nothing.
+		convo = append(append([]pipeline.Message(nil), req.Messages...),
 			pipeline.Message{Role: "user", Content: t.query},
-			pipeline.Message{Role: "assistant", Content: resp.Content},
-		)
+			pipeline.Message{Role: "assistant", Content: resp.Content})
 	}
 	r.toolExecs = execs
-	return r
+	return r, dropped
+}
+
+// ── long-loop measurement (Phase 6) ────────────────────────────────────────
+
+// longLoopTurns is the horizon Phase 6 was built for. The 12-turn workload
+// above never reaches its budget, so trimming contributes nothing there and the
+// report says so; this is where unbounded history actually costs money.
+const longLoopTurns = 100
+
+// measureLongLoop runs the same growing conversation with and without history
+// trimming and reports the difference.
+//
+// Deliberately separate from the main workload rather than replacing it: the
+// v1 headline is a claim about that workload and must stay comparable across
+// revisions. Adding a second measurement is honest; moving the goalposts of the
+// first is not.
+func measureLongLoop() {
+	fmt.Printf("\n%s\nlong-loop measurement — %d turns, growing context\n%s\n",
+		strings.Repeat("═", 64), longLoopTurns, strings.Repeat("─", 64))
+
+	policy := budget.Policy{NewQuestionBudget: 1200}
+
+	untrimmed, _, peakUntrimmed := longLoop(nil)
+	trimmed, dropped, peakTrimmed := longLoop(&policy)
+
+	saving := 100 * (1 - trimmed/untrimmed)
+	fmt.Printf("  no budget      : %9.0f billed tokens, peak request %d tokens\n", untrimmed, peakUntrimmed)
+	fmt.Printf("  history budget : %9.0f billed tokens, peak request %d tokens (limit %d)\n",
+		trimmed, peakTrimmed, policy.NewQuestionBudget)
+	fmt.Printf("  reduction      : %.1f%%, %d messages dropped\n", saving, dropped)
+
+	if peakTrimmed > policy.NewQuestionBudget {
+		fmt.Printf("\nFAIL: peak request %d exceeds the %d budget\n", peakTrimmed, policy.NewQuestionBudget)
+		os.Exit(1)
+	}
+	fmt.Printf("  every turn stayed within budget\n")
+}
+
+// longLoop returns billed tokens, messages dropped, and the largest single
+// request measured in estimator tokens. A nil policy disables trimming.
+func longLoop(policy *budget.Policy) (billed float64, dropped, peak int) {
+	m := &meter{seen: map[string]bool{}}
+
+	opts := []config.Option{config.WithCacheAlignment()}
+	if policy != nil {
+		opts = append(opts, config.WithHistoryBudget(*policy, nil,
+			history.WithSummarizer(history.ElisionSummarizer())))
+	}
+	kit := agentkit.New(m, opts...)
+
+	convo := []pipeline.Message{{Role: "system", Content: systemPrompt, Static: true}}
+	counter := budget.CharEstimator{}
+
+	for turn := range longLoopTurns {
+		req := &pipeline.Request{
+			Query:    fmt.Sprintf("Turn %d: %s", turn, strings.Repeat("please continue the analysis ", 3)),
+			Messages: convo,
+			TurnType: pipeline.TurnNewQuestion,
+		}
+
+		resp, err := kit.Run(context.Background(), req)
+		if err != nil {
+			log.Fatalf("long loop: %v", err)
+		}
+		if n, ok := req.Metadata[history.MetaDropped].(int); ok {
+			dropped += n
+		}
+
+		cost, err := budget.CountRequest(context.Background(), counter, req)
+		if err != nil {
+			log.Fatalf("count: %v", err)
+		}
+		if cost.Total > peak {
+			peak = cost.Total
+		}
+
+		convo = append(append([]pipeline.Message(nil), req.Messages...),
+			pipeline.Message{Role: "user", Content: req.Query},
+			pipeline.Message{Role: "assistant", Content: resp.Content + " " + strings.Repeat("detail ", 8)},
+		)
+	}
+	return m.billed, dropped, peak
 }

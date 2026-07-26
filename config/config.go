@@ -4,19 +4,23 @@
 // impossible to get wrong. Callers declare *what* they want enabled; this
 // package decides the order:
 //
-//	preprocess → toolcache → rag → compress → lazyload → cache-align
+//	preprocess → toolcache → rag → compress → history → custom → cache-align
 //
 // RAG must precede compress, and both must precede cache alignment, because a
 // cache breakpoint placed after per-turn content poisons the provider-side
-// cache (spec §2.4.3, §2.4.6). Routing is not a stage at all: it runs last,
-// after the prompt has its final shape, so it can see the real size.
+// cache (spec §2.4.3, §2.4.6). History trimming sits between them: it needs the
+// final payload size to decide what to drop, and alignment needs the final
+// layout to place breakpoints. Routing is not a stage at all — it runs last,
+// after the prompt has its shape, so it can see the real size.
 package config
 
 import (
 	"time"
 
+	"agentkit/budget"
 	"agentkit/cache"
 	"agentkit/compress"
+	"agentkit/history"
 	"agentkit/metrics"
 	"agentkit/pipeline"
 	"agentkit/preprocess"
@@ -41,6 +45,12 @@ type Config struct {
 	TopK     int
 
 	Compressors []compress.Compressor
+
+	// History budget enforcement. Enabled only when HistoryPolicy has a
+	// non-zero budget for at least one turn type.
+	HistoryPolicy  budget.Policy
+	HistoryCounter budget.TokenCounter
+	HistoryOpts    []history.Option
 
 	AlignerSpecs []cache.BreakpointSpec
 	AlignEnabled bool
@@ -103,6 +113,25 @@ func WithDefaultCompression() Option {
 	return WithCompression(compress.NewJSONCompressor(), compress.NewTextCompressor())
 }
 
+// WithHistoryBudget trims the conversation to fit policy before the prompt is
+// assembled, closing the loop budget.Policy previously left open: it computed a
+// budget that nothing enforced.
+//
+// counter may be nil, in which case budget.CharEstimator is used — free, never
+// fails, and approximate. Pass a provider-backed counter (see
+// anthropic.NewTokenCounter) when trimming against a hard context limit rather
+// than for cost.
+//
+// The static prefix and the newest message are never touched; see package
+// history for why, and what that costs.
+func WithHistoryBudget(policy budget.Policy, counter budget.TokenCounter, opts ...history.Option) Option {
+	return func(c *Config) {
+		c.HistoryPolicy = policy
+		c.HistoryCounter = counter
+		c.HistoryOpts = append(c.HistoryOpts, opts...)
+	}
+}
+
 // WithCacheAlignment enables prompt-cache breakpoint placement. Passing no
 // specs uses cache.DefaultSpecs.
 func WithCacheAlignment(specs ...cache.BreakpointSpec) Option {
@@ -158,11 +187,24 @@ func (c Config) Stages() []pipeline.Stage {
 		stages = append(stages, compress.NewStageWithMetrics(rec, c.Compressors...))
 	}
 
-	// 5. Caller extensions, still ahead of alignment so they cannot invalidate
+	// 5. Fit the result to a token budget. AFTER compression, because it can
+	//    only decide what to drop once the payload is as small as it is going
+	//    to get; BEFORE alignment, which computes breakpoints over the final
+	//    layout. Trimming never touches the static prefix, so alignment's
+	//    anchor survives.
+	if c.HistoryPolicy != (budget.Policy{}) {
+		opts := append([]history.Option{
+			history.WithCounter(c.HistoryCounter),
+			history.WithMetrics(rec),
+		}, c.HistoryOpts...)
+		stages = append(stages, history.NewStage(c.HistoryPolicy, opts...))
+	}
+
+	// 6. Caller extensions, still ahead of alignment so they cannot invalidate
 	//    breakpoints computed over content they went on to change.
 	stages = append(stages, c.ExtraStages...)
 
-	// 6. Alignment LAST: it needs the final content layout.
+	// 7. Alignment LAST: it needs the final content layout.
 	if c.AlignEnabled {
 		specs := c.AlignerSpecs
 		if len(specs) == 0 {
