@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"agentkit/metrics"
+	"github.com/JMjirapat/tokipe/metrics"
 )
 
 // counterOnly implements Recorder and nothing else — the shape most callers

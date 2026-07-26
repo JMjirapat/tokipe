@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"agentkit/metrics"
-	"agentkit/pipeline"
-	"agentkit/providers/mock"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/providers/mock"
 )
 
 // simpleReq is a short, plain-prose request: near the bottom of the score range.

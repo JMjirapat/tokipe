@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 // sseServer serves the given frames as text/event-stream, flushing each so the

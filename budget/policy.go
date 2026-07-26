@@ -5,7 +5,7 @@
 // See docs/spec.md §2.4.8.
 package budget
 
-import "agentkit/pipeline"
+import "github.com/JMjirapat/tokipe/pipeline"
 
 // Policy maps turn types to a per-turn context budget, in tokens.
 type Policy struct {

@@ -41,9 +41,9 @@
 package agentkit
 
 import (
-	"agentkit/config"
-	"agentkit/pipeline"
-	"agentkit/providers"
+	"github.com/JMjirapat/tokipe/config"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/providers"
 )
 
 // Re-exported so a caller can build a request and read a response without

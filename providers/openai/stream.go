@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 var _ pipeline.StreamingClient = (*Client)(nil)

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"agentkit/pipeline"
-	"agentkit/providers/mock"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/providers/mock"
 )
 
 func TestRunWithNoStagesCallsClientDirectly(t *testing.T) {

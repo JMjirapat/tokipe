@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"agentkit/metrics"
+	"github.com/JMjirapat/tokipe/metrics"
 )
 
 // Regression for QA-REPORT.md round 4: a panicking metrics backend escaped

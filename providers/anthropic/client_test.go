@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 func newTestClient(t *testing.T, h http.HandlerFunc) (*Client, *httptest.Server) {

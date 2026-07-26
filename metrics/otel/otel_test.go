@@ -8,8 +8,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	akmetrics "agentkit/metrics"
-	akotel "agentkit/metrics/otel"
+	akmetrics "github.com/JMjirapat/tokipe/metrics"
+	akotel "github.com/JMjirapat/tokipe/metrics/otel"
 )
 
 // collect reads what OTel actually exported, so assertions are made against the

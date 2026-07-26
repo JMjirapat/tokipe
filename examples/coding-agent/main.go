@@ -18,17 +18,17 @@ import (
 	"strings"
 	"time"
 
-	"agentkit"
-	"agentkit/budget"
-	"agentkit/config"
-	"agentkit/lazyload"
-	"agentkit/metrics"
-	"agentkit/pipeline"
-	"agentkit/preprocess"
-	"agentkit/providers/mock"
-	"agentkit/router"
-	storemock "agentkit/stores/mock"
-	"agentkit/toolcache"
+	"github.com/JMjirapat/tokipe"
+	"github.com/JMjirapat/tokipe/budget"
+	"github.com/JMjirapat/tokipe/config"
+	"github.com/JMjirapat/tokipe/lazyload"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/preprocess"
+	"github.com/JMjirapat/tokipe/providers/mock"
+	"github.com/JMjirapat/tokipe/router"
+	storemock "github.com/JMjirapat/tokipe/stores/mock"
+	"github.com/JMjirapat/tokipe/toolcache"
 )
 
 const systemPrompt = `You are a coding agent working in a Go repository.

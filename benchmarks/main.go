@@ -39,15 +39,15 @@ import (
 	"strings"
 	"time"
 
-	"agentkit"
-	"agentkit/budget"
-	"agentkit/config"
-	"agentkit/history"
-	"agentkit/metrics"
-	"agentkit/pipeline"
-	"agentkit/router"
-	storemock "agentkit/stores/mock"
-	"agentkit/toolcache"
+	"github.com/JMjirapat/tokipe"
+	"github.com/JMjirapat/tokipe/budget"
+	"github.com/JMjirapat/tokipe/config"
+	"github.com/JMjirapat/tokipe/history"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/router"
+	storemock "github.com/JMjirapat/tokipe/stores/mock"
+	"github.com/JMjirapat/tokipe/toolcache"
 )
 
 const (
@@ -70,7 +70,7 @@ func main() {
 
 	fmt.Printf("\n%s\n", strings.Repeat("═", 64))
 	report("baseline", base)
-	report("agentkit", opt)
+	report("github.com/JMjirapat/tokipe", opt)
 
 	report("+history", trimmed)
 	reduction := 100 * (1 - opt.billed/base.billed)

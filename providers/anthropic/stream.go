@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"strings"
 
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 // Client implements the optional streaming interface as well as ModelClient.

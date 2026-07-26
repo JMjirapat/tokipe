@@ -5,7 +5,7 @@ import (
 	"iter"
 	"strings"
 
-	"agentkit/internal/safe"
+	"github.com/JMjirapat/tokipe/internal/safe"
 )
 
 // Delta is one incremental piece of a streamed response.

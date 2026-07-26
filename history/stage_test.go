@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"agentkit/budget"
-	"agentkit/history"
-	"agentkit/metrics"
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/budget"
+	"github.com/JMjirapat/tokipe/history"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 func conversation(turns int) []pipeline.Message {

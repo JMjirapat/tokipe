@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 // PlainTextParser treats the whole of stdout as the answer. Correct for CLIs

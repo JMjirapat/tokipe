@@ -17,16 +17,16 @@ package config
 import (
 	"time"
 
-	"agentkit/budget"
-	"agentkit/cache"
-	"agentkit/compress"
-	"agentkit/history"
-	"agentkit/metrics"
-	"agentkit/pipeline"
-	"agentkit/preprocess"
-	"agentkit/rag"
-	"agentkit/stores"
-	"agentkit/toolcache"
+	"github.com/JMjirapat/tokipe/budget"
+	"github.com/JMjirapat/tokipe/cache"
+	"github.com/JMjirapat/tokipe/compress"
+	"github.com/JMjirapat/tokipe/history"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/preprocess"
+	"github.com/JMjirapat/tokipe/rag"
+	"github.com/JMjirapat/tokipe/stores"
+	"github.com/JMjirapat/tokipe/toolcache"
 )
 
 // Config is the resolved set of enabled optimizations. Build it with Options

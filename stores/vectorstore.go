@@ -6,7 +6,7 @@ package stores
 import (
 	"context"
 
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 type Embedder interface {

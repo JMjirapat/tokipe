@@ -8,16 +8,16 @@ import (
 	"testing"
 	"time"
 
-	"agentkit"
-	"agentkit/compress"
-	"agentkit/config"
-	"agentkit/metrics"
-	"agentkit/pipeline"
-	"agentkit/preprocess"
-	"agentkit/providers/mock"
-	"agentkit/router"
-	"agentkit/stores"
-	"agentkit/toolcache"
+	"github.com/JMjirapat/tokipe"
+	"github.com/JMjirapat/tokipe/compress"
+	"github.com/JMjirapat/tokipe/config"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/preprocess"
+	"github.com/JMjirapat/tokipe/providers/mock"
+	"github.com/JMjirapat/tokipe/router"
+	"github.com/JMjirapat/tokipe/stores"
+	"github.com/JMjirapat/tokipe/toolcache"
 )
 
 // Three QA rounds each reported one unguarded extension point and each time a

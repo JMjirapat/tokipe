@@ -6,10 +6,10 @@ package rag
 import (
 	"context"
 
-	"agentkit/internal/safe"
-	"agentkit/metrics"
-	"agentkit/pipeline"
-	"agentkit/stores"
+	"github.com/JMjirapat/tokipe/internal/safe"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/stores"
 )
 
 // Metric names emitted by this stage.

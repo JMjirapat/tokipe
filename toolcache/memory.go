@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"agentkit/metrics"
+	"github.com/JMjirapat/tokipe/metrics"
 )
 
 // entry is one stored value plus its absolute expiry. A zero expiresAt means

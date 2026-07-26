@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 func TestEmbedderDeterministicAndUnitLength(t *testing.T) {

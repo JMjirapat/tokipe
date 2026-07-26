@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"agentkit/pipeline"
-	"agentkit/providers/anthropic"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/providers/anthropic"
 )
 
 // TestPromptCachingAcrossTurns is the manual acceptance test for spec §3.2:

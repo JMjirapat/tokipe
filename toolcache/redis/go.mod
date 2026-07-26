@@ -1,11 +1,11 @@
-module agentkit/toolcache/redis
+module github.com/JMjirapat/tokipe/toolcache/redis
 
 go 1.23
 
-replace agentkit => ../..
+replace github.com/JMjirapat/tokipe => ../..
 
 require (
-	agentkit v0.0.0-00010101000000-000000000000
+	github.com/JMjirapat/tokipe v0.0.0-00010101000000-000000000000
 	github.com/alicebob/miniredis/v2 v2.33.0
 	github.com/redis/go-redis/v9 v9.7.3
 )

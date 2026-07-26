@@ -39,14 +39,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"agentkit"
-	"agentkit/config"
-	"agentkit/metrics"
-	"agentkit/pipeline"
-	"agentkit/preprocess"
-	"agentkit/providers/cli"
-	"agentkit/router"
-	"agentkit/toolcache"
+	"github.com/JMjirapat/tokipe"
+	"github.com/JMjirapat/tokipe/config"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/preprocess"
+	"github.com/JMjirapat/tokipe/providers/cli"
+	"github.com/JMjirapat/tokipe/router"
+	"github.com/JMjirapat/tokipe/toolcache"
 )
 
 func main() {

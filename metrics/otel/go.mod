@@ -1,9 +1,9 @@
-module agentkit/metrics/otel
+module github.com/JMjirapat/tokipe/metrics/otel
 
 go 1.25.0
 
 require (
-	agentkit v0.0.0
+	github.com/JMjirapat/tokipe v0.0.0
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/metric v1.44.0
 	go.opentelemetry.io/otel/sdk/metric v1.44.0
@@ -20,4 +20,4 @@ require (
 	golang.org/x/sys v0.45.0 // indirect
 )
 
-replace agentkit => ../..
+replace github.com/JMjirapat/tokipe => ../..

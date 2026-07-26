@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 const systemPrompt = `You are a coding agent operating inside a Go monorepo.

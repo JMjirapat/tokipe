@@ -44,9 +44,9 @@ module myapp
 
 go 1.23
 
-require agentkit v0.0.0
+require github.com/JMjirapat/tokipe v1.0.0
 
-replace agentkit => ../tokipe
+
 ```
 
 After the project is published, replace the temporary module path and

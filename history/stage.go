@@ -33,10 +33,10 @@ import (
 	"fmt"
 	"strings"
 
-	"agentkit/budget"
-	"agentkit/internal/safe"
-	"agentkit/metrics"
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/budget"
+	"github.com/JMjirapat/tokipe/internal/safe"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 // Metric names emitted by the stage.

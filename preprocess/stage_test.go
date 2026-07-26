@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"agentkit/metrics"
-	"agentkit/pipeline"
-	"agentkit/preprocess"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/preprocess"
 )
 
 // stubRule is a Rule whose behaviour is fully controlled by its fields.

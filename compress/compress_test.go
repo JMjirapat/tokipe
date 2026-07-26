@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"agentkit/metrics"
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 // --- helpers ---------------------------------------------------------------

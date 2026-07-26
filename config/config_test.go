@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"agentkit/budget"
-	"agentkit/cache"
-	"agentkit/compress"
-	"agentkit/config"
-	"agentkit/pipeline"
-	"agentkit/preprocess"
-	"agentkit/stores/mock"
-	"agentkit/toolcache"
+	"github.com/JMjirapat/tokipe/budget"
+	"github.com/JMjirapat/tokipe/cache"
+	"github.com/JMjirapat/tokipe/compress"
+	"github.com/JMjirapat/tokipe/config"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/preprocess"
+	"github.com/JMjirapat/tokipe/stores/mock"
+	"github.com/JMjirapat/tokipe/toolcache"
 )
 
 func names(stages []pipeline.Stage) []string {

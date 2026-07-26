@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"agentkit"
-	"agentkit/config"
-	"agentkit/pipeline"
-	"agentkit/providers/cli"
+	"github.com/JMjirapat/tokipe"
+	"github.com/JMjirapat/tokipe/config"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/providers/cli"
 )
 
 // TestLiveCLIs drives the real binaries. Skipped unless AGENTKIT_CLI_LIVE=1,

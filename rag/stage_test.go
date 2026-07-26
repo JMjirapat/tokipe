@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"agentkit/metrics"
-	"agentkit/pipeline"
-	storemock "agentkit/stores/mock"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
+	storemock "github.com/JMjirapat/tokipe/stores/mock"
 )
 
 const dim = 64

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"agentkit/metrics"
-	"agentkit/pipeline"
-	"agentkit/toolcache"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/toolcache"
 )
 
 func callsFor(names ...string) []pipeline.ToolCall {

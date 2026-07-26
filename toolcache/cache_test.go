@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"agentkit/metrics"
-	"agentkit/toolcache"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/toolcache"
 )
 
 func TestHashToolCallIsOrderIndependent(t *testing.T) {

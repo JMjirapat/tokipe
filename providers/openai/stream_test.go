@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 // sseServer flushes each frame so the client genuinely reads incrementally.

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"agentkit/metrics"
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 type recordingStage struct {

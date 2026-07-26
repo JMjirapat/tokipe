@@ -13,8 +13,8 @@ import (
 	"sort"
 	"sync"
 
-	"agentkit/pipeline"
-	"agentkit/stores"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/stores"
 )
 
 // DefaultDim is the vector dimensionality used by Embedder when none is given.

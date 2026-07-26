@@ -29,14 +29,17 @@ backends.
 
 Requirements: Go 1.23 or newer.
 
-> **Module path:** this source tree currently declares `module agentkit` and
-> has no published remote module URL. Code inside this repository imports it
-> directly. An external application can use a temporary `replace` directive
-> until the project is published:
+```bash
+go get github.com/JMjirapat/tokipe
+```
+
+> **Not yet published.** The module path is `github.com/JMjirapat/tokipe`, but nothing has been
+> pushed to that repository yet, so `go get` will not resolve until it is. Until
+> then, use a `replace` directive pointing at a local checkout:
 >
 > ```go
-> require agentkit v0.0.0
-> replace agentkit => ../tokipe
+> require github.com/JMjirapat/tokipe v1.0.0
+> replace github.com/JMjirapat/tokipe => ../tokipe
 > ```
 
 ## 60-second quick start
@@ -51,9 +54,9 @@ import (
 	"fmt"
 	"log"
 
-	"agentkit"
-	"agentkit/pipeline"
-	"agentkit/providers/mock"
+	"github.com/JMjirapat/tokipe"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/providers/mock"
 )
 
 func main() {

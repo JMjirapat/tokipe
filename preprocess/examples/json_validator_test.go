@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"agentkit/pipeline"
-	"agentkit/preprocess"
-	"agentkit/preprocess/examples"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/preprocess"
+	"github.com/JMjirapat/tokipe/preprocess/examples"
 )
 
 func TestJSONValidatorHandlesQuery(t *testing.T) {

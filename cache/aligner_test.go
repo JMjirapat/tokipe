@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
-	"agentkit/metrics"
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 func msg(role, content string, static bool) pipeline.Message {

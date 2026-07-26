@@ -21,12 +21,12 @@ import (
 	"log"
 	"strings"
 
-	"agentkit"
-	"agentkit/config"
-	"agentkit/metrics"
-	"agentkit/pipeline"
-	"agentkit/providers/mock"
-	storemock "agentkit/stores/mock"
+	"github.com/JMjirapat/tokipe"
+	"github.com/JMjirapat/tokipe/config"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/providers/mock"
+	storemock "github.com/JMjirapat/tokipe/stores/mock"
 )
 
 const systemPrompt = `You are a support assistant for the Orbit API.

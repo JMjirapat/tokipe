@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 // Timed wraps a stage so its Process duration is recorded, labelled by stage

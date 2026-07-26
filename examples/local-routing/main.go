@@ -16,12 +16,12 @@ import (
 	"log"
 	"strings"
 
-	"agentkit"
-	"agentkit/config"
-	"agentkit/metrics"
-	"agentkit/pipeline"
-	"agentkit/providers/mock"
-	"agentkit/router"
+	"github.com/JMjirapat/tokipe"
+	"github.com/JMjirapat/tokipe/config"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/providers/mock"
+	"github.com/JMjirapat/tokipe/router"
 )
 
 type job struct {

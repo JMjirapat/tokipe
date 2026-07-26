@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"agentkit/pipeline"
-	"agentkit/providers/cli"
-	"agentkit/toolcache"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/providers/cli"
+	"github.com/JMjirapat/tokipe/toolcache"
 )
 
 // The tests drive a fake CLI by re-executing this test binary with

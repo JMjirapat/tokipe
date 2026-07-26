@@ -5,15 +5,15 @@ import (
 	"testing"
 	"time"
 
-	"agentkit"
-	"agentkit/compress"
-	"agentkit/config"
-	"agentkit/metrics"
-	"agentkit/pipeline"
-	"agentkit/providers/mock"
-	"agentkit/router"
-	"agentkit/stores"
-	"agentkit/toolcache"
+	"github.com/JMjirapat/tokipe"
+	"github.com/JMjirapat/tokipe/compress"
+	"github.com/JMjirapat/tokipe/config"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/providers/mock"
+	"github.com/JMjirapat/tokipe/router"
+	"github.com/JMjirapat/tokipe/stores"
+	"github.com/JMjirapat/tokipe/toolcache"
 )
 
 // Regression tests for QA-REPORT.md finding 1: a panic in caller-supplied code

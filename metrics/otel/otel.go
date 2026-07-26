@@ -23,7 +23,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	akmetrics "agentkit/metrics"
+	akmetrics "github.com/JMjirapat/tokipe/metrics"
 )
 
 // Recorder implements agentkit's Recorder plus every optional interface.

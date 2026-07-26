@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"agentkit/compress"
-	"agentkit/metrics"
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/compress"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 func chunks(contents ...string) []pipeline.Chunk {

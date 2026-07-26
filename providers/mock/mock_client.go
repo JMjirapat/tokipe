@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 // Client is a configurable ModelClient for tests and examples. It records the

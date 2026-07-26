@@ -1,6 +1,6 @@
 package cache
 
-import "agentkit/pipeline"
+import "github.com/JMjirapat/tokipe/pipeline"
 
 // BreakpointSpec declares one place the caller wants a provider-side cache
 // breakpoint anchored.

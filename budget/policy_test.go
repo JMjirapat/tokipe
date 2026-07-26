@@ -3,7 +3,7 @@ package budget
 import (
 	"testing"
 
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 func TestPolicyBudgetFor(t *testing.T) {

@@ -13,8 +13,8 @@ package cache
 import (
 	"context"
 
-	"agentkit/metrics"
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 // MetricBreakpoints is the counter name incremented once per emitted

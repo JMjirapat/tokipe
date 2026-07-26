@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"agentkit/metrics"
-	"agentkit/pipeline"
-	"agentkit/toolcache"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/toolcache"
 )
 
 // blockingExecutor returns an Executor that parks until release is closed, so

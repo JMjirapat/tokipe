@@ -5,8 +5,8 @@ import (
 	"strings"
 	"unicode"
 
-	"agentkit/metrics"
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 // DedupeStage removes retrieved chunks that duplicate one already kept.

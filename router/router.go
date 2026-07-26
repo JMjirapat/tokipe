@@ -10,7 +10,7 @@
 // context-shaping stage so it can see the final prompt size.
 package router
 
-import "agentkit/pipeline"
+import "github.com/JMjirapat/tokipe/pipeline"
 
 // Router selects the ModelClient used for the final Send.
 //

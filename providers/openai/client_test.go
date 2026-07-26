@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 const okResponse = `{

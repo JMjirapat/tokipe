@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 // Regressions for QA-REPORT.md findings 4 and 5, using the report's own inputs.

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"agentkit/budget"
+	"github.com/JMjirapat/tokipe/budget"
 )
 
 // CountTokensPath is the endpoint that reports an exact token count.

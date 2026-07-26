@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"agentkit/pipeline"
-	"agentkit/providers/mock"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/providers/mock"
 )
 
 func drain(t *testing.T, seq iter.Seq2[pipeline.Delta, error]) (texts []string, resp *pipeline.Response, err error) {

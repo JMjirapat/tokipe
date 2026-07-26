@@ -32,7 +32,7 @@ import (
 	"strings"
 	"time"
 
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 // API defaults.

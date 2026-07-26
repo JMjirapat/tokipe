@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"agentkit/pipeline"
-	"agentkit/toolcache"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/toolcache"
 )
 
 // Regression for QA-REPORT.md finding 3: encoding/json replaces each invalid

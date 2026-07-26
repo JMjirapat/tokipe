@@ -21,8 +21,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"agentkit/pipeline"
-	"agentkit/stores"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/stores"
 )
 
 // identifierRE is the strict allowlist for any SQL identifier this package will

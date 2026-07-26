@@ -3,7 +3,7 @@ package budget
 import (
 	"strings"
 
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 // TurnClassifier guesses a Request's pipeline.TurnType from its shape.

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"agentkit/budget"
+	"github.com/JMjirapat/tokipe/budget"
 )
 
 func counterServer(t *testing.T, handler http.HandlerFunc) *TokenCounter {

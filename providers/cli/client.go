@@ -44,8 +44,8 @@ import (
 	"strings"
 	"time"
 
-	"agentkit/pipeline"
-	"agentkit/toolcache"
+	"github.com/JMjirapat/tokipe/pipeline"
+	"github.com/JMjirapat/tokipe/toolcache"
 )
 
 // PromptPlaceholder is replaced by the rendered prompt in Config.Args when

@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 // JSONValidator is a preprocess.Rule that answers "is this valid JSON?"

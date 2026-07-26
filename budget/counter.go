@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 // TokenCounter measures the token cost of text.

@@ -22,9 +22,9 @@ package compress
 import (
 	"context"
 
-	"agentkit/internal/safe"
-	"agentkit/metrics"
-	"agentkit/pipeline"
+	"github.com/JMjirapat/tokipe/internal/safe"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/pipeline"
 )
 
 // MetricCompressed is the counter name incremented once per chunk actually

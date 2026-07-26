@@ -17,8 +17,8 @@ import (
 	"fmt"
 	"time"
 
-	"agentkit/metrics"
-	"agentkit/toolcache"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/toolcache"
 
 	goredis "github.com/redis/go-redis/v9"
 )

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"agentkit/metrics"
-	"agentkit/toolcache"
-	akredis "agentkit/toolcache/redis"
+	"github.com/JMjirapat/tokipe/metrics"
+	"github.com/JMjirapat/tokipe/toolcache"
+	akredis "github.com/JMjirapat/tokipe/toolcache/redis"
 
 	"github.com/alicebob/miniredis/v2"
 	goredis "github.com/redis/go-redis/v9"

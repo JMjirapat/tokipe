@@ -3,7 +3,7 @@
 // here so `providers.ModelClient` is the name callers use.
 package providers
 
-import "agentkit/pipeline"
+import "github.com/JMjirapat/tokipe/pipeline"
 
 // ModelClient abstracts a single LLM provider/model endpoint. Implementations
 // must NOT be assumed to be Anthropic-specific anywhere outside this package
