@@ -16,19 +16,24 @@
 // panicking — the turn still reaches the model, and Run returns no error for
 // it.
 //
-// Run does return an error in four cases, none of them an optimization
+// Run returns an error in exactly three cases, none of them an optimization
 // failure:
 //
 //   - the model call itself failed;
 //   - ctx was cancelled or its deadline passed;
 //   - a caller-supplied Stage added with config.WithStage returned an error,
-//     or panicked — the caller's own code is not wrapped, because swallowing
-//     it would hide their bug rather than tolerate a third party's;
-//   - a stage wrote a malformed short-circuit value into Metadata, which is a
-//     programming error.
+//     or a stage wrote a malformed short-circuit value into Metadata. Both
+//     surface as *pipeline.StageError naming the stage responsible.
 //
-// The first two are ordinary. The last two are bugs in the calling program,
-// surfaced as *pipeline.StageError naming the stage responsible.
+// One case is neither returned nor contained: a Stage you supplied via
+// config.WithStage that *panics* propagates the panic to your caller. Run
+// does not recover it. Your stage is your code running in your pipeline;
+// recovering it would hide your bug rather than tolerate a third party's. If
+// you want that panic contained, recover inside your own Process method.
+//
+// Everything agentkit itself calls into — preprocess rules, tool executors,
+// compressors, embedders, vector stores, routers, and every Name method — is
+// wrapped, and a panic there is treated exactly like the equivalent error.
 //
 // New enforces the stage ordering the spec requires (retrieval before
 // compression, both before cache alignment, routing last). Callers who need a

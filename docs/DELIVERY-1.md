@@ -2,10 +2,47 @@
 
 **Date:** 2026-07-26
 **Scope:** the complete BRD/tech-spec in [spec.md](spec.md), Phases 0–4
-**Status:** QA rounds 1 and 2 complete; all findings resolved, awaiting re-verification
+**Status:** QA rounds 1-3 complete; all findings resolved, awaiting re-verification
 **Not yet:** tagged, pushed, or run against a real Anthropic endpoint
 
 ## 0. QA history
+
+### Round 3 — revision `03acda9`
+
+All nine earlier inputs pass. QA found one Minor, in two parts, and it is the
+most useful finding of the three rounds because it caught a claim of *mine*
+rather than a defect: Delivery round 2 said the sweep had covered every
+caller-supplied `Name()` on the request path. It had not.
+
+| # | Finding | Resolution |
+|---|---|---|
+| R3-a | Docs said a custom-stage panic is returned as `StageError`; it actually propagates | Fixed the docs — the behaviour was right, the description was not. |
+| R3-b | `Stage.Name()` was unguarded while building `StageError` | Fixed. Also found `Router.Route` unguarded — unreported. |
+
+R3-a was a documentation defect, not a behaviour one. Not recovering a
+caller's own `Stage.Process` panic is deliberate; the docs simply listed it
+among the returned errors. Both `agentkit.go` and the README now state plainly
+that it propagates and that recovering it is the caller's job.
+
+R3-b mattered more than its severity suggests: a broken `Name()` could replace
+the real error `Process` had already returned, destroying the only useful
+signal in favour of a label. The sweep it prompted also found a panicking
+`Router.Route` escaping — routing is an optimization, so it now falls back to
+the default client and records `router.reason = "router_panicked"`.
+
+**The pattern, and what closed it.** Each round reported one unguarded
+extension point, and each sweep found two or three more of the same class:
+
+```
+round 1: tool Executor  → also Rule, Compressor, Embedder, VectorStore
+round 2: Rule.Name      → also ModelClient.Name, in router and in pipeline
+round 3: Stage.Name     → also Router.Route
+```
+
+Fixing instances one at a time was losing to that pattern, so
+`extension_matrix_test.go` now enumerates every method agentkit calls on
+caller-supplied code — 14 cases — and asserts each one's contract. A new
+extension point has to be added to that table before it can be forgotten.
 
 ### Round 2 — revision `b5cdd38`
 
@@ -103,14 +140,14 @@ tests" turned out not to be reproducible with any plain `go` invocation — it
 came from a wrapper's summary line. Counting method, not just the number:
 
 ```bash
-go test -race -json -count=1 ./... | grep -c '"Action":"run"'   # 276, incl. subtests
-grep -rhoE '^func (Test|Example)[A-Za-z0-9_]*' --include='*_test.go' . | wc -l  # 218 funcs
+go test -race -json -count=1 ./... | grep -c '"Action":"run"'   # 293, incl. subtests
+grep -rhoE '^func (Test|Example)[A-Za-z0-9_]*' --include='*_test.go' . | wc -l  # 221 funcs
 go list ./... | wc -l                                            # 25 packages
 ```
 
 | Claim | Evidence | Result |
 |---|---|---|
-| Everything builds and passes under the race detector | `go test -race ./...` | 276 run events / 218 test funcs, 25 packages, 0 failures |
+| Everything builds and passes under the race detector | `go test -race ./...` | 293 run events / 221 test funcs, 25 packages, 0 failures |
 | No CGo required | `CGO_ENABLED=0 go build ./...` | clean |
 | Core has zero third-party dependencies | `go list -deps ./...` filtered, enforced in CI | none |
 | ≥30% input-token reduction | `go run ./benchmarks` | **57.1%** |
@@ -129,7 +166,7 @@ Coverage, all above the spec's ≥80% bar for the five named packages:
 | `agentkit` | 100.0% | | `providers/cli` | 94.3% |
 | `compress` | 98.9% | | `providers/anthropic` | 94.6% |
 | `preprocess` | 98.8% | | `toolcache` | 93.7% |
-| `pipeline` | 97.0% | | `config` | 90.5% |
+| `pipeline` | 94.4% | | `config` | 90.5% |
 | `stores/mock` | 96.7% | | `lazyload` | 88.1% |
 
 ## 3. What is NOT verified
@@ -168,9 +205,9 @@ because the owner has no API credit.
 
 ## 5. Handover checklist for the next phase
 
-- [x] Independent verification and QA rounds 1 and 2 — see [QA-REPORT.md](QA-REPORT.md)
-- [ ] QA round 3: re-verify the three round 2 fixes against the GO criteria in
-      QA-REPORT.md §6
+- [x] Independent verification and QA rounds 1-3 — see [QA-REPORT.md](QA-REPORT.md)
+- [ ] QA round 4: re-verify the round 3 fixes against the GO criteria in
+      QA-REPORT.md §7
 - [ ] Decide the final module path (`agentkit` → `github.com/<org>/agentkit`)
 - [ ] Run the Anthropic prompt-caching test once credit exists
 - [ ] Set a git remote and push

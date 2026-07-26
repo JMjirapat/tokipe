@@ -85,10 +85,14 @@ A panic in any of them — a tool executor, a preprocess rule, a compressor, an
 embedder — is contained the same way.
 
 `Run` returns an error only when the model call fails, when `ctx` ends, or when
-the calling program has a bug: a `Stage` you supplied via `config.WithStage`
-returned an error or panicked, or a stage wrote a malformed short-circuit
-value. Your own stages are deliberately *not* wrapped — swallowing their panics
-would hide your bugs rather than tolerate a third party's.
+a `Stage` you supplied via `config.WithStage` returns an error or writes a
+malformed short-circuit value.
+
+One case is neither returned nor contained: **a `Stage` you supplied that
+panics propagates that panic.** `Run` does not recover it — your stage is your
+code in your pipeline, and recovering it would hide your bug rather than
+tolerate a third party's. Recover inside your own `Process` if you want it
+contained. Everything agentkit calls into itself is wrapped.
 
 **No global state.** Every stage takes its dependencies through its
 constructor. Nothing is a package-level singleton.

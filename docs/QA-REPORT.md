@@ -5,35 +5,110 @@
 
 **Round 2 revision:** `b5cdd38`
 
+**Round 3 revision:** `03acda9`
+
 **Source of truth:** [spec.md](spec.md)  
 **Delivery claim:** [DELIVERY-1.md](DELIVERY-1.md)  
 **QA procedure:** [QA-BRIEF.md](QA-BRIEF.md)  
-**Current result:** **NO-GO for `v1.0.0` after QA round 2**
+**Current result:** **NO-GO for `v1.0.0` after QA round 3**
 
 ## 1. Executive summary
 
-All six inputs reported in QA round 1 now pass. Revision `b5cdd38` also builds
-successfully, passes the race detector, satisfies the stated coverage
-threshold, and reproduces the documented 57.1% synthetic benchmark reduction.
+All six inputs from QA round 1 and all three inputs from QA round 2 now pass.
+Revision `03acda9` builds successfully, passes the race detector, satisfies the
+stated coverage threshold, and reproduces the documented 57.1% synthetic
+benchmark reduction.
 
-Adversarial re-verification of the new recovery and wire-order boundaries found
-three additional cases not covered by the added regression tests:
+Round 3 found one remaining documentation/behaviour mismatch:
 
 | Severity | Count |
 |---|---:|
-| Blocker | 1 |
-| Major | 2 |
-| Minor | 0 |
+| Blocker | 0 |
+| Major | 0 |
+| Minor | 1 |
 
-The release remains NO-GO because `preprocess.Rule.Name()` is still outside
-the new panic boundary and can panic out of `Pipeline.Run`. Cache backend
-panics do not yet behave like ordinary cache errors, and the Anthropic adapter
-still violates the dynamic-before-newest ordering for requests that carry the
-newest message in `Messages` while leaving `Query` empty.
+The release remains NO-GO only because the public package documentation says
+a caller-supplied stage panic is returned as a `StageError`, while the
+deliberate implementation policy is to let that panic propagate. The same
+error path calls `Stage.Name()` without protection, so a panicking name method
+can replace an otherwise returnable `StageError`.
 
 No production source code was changed during this review.
 
-## 2. QA round 2 findings
+## 2. QA round 3 finding
+
+### [Minor] Custom-stage panics are documented as returned `StageError`s
+
+**File:** `agentkit.go:18-31`, `pipeline/stage.go:191-220`
+
+**Claim**
+
+The package documentation lists a caller-supplied stage panic among the cases
+where `Run` “returns an error”, then states that caller-programming errors are
+surfaced as `*pipeline.StageError` naming the responsible stage.
+
+**Reality**
+
+The implementation deliberately does not recover custom-stage panics. A panic
+from `Stage.Process` therefore propagates rather than being returned.
+
+Additionally, when `Stage.Process` returns an ordinary error,
+`Pipeline.Run` calls `stage.Name()` while constructing `StageError`. If
+`Name()` panics, that second panic replaces the original error.
+
+**Concrete inputs**
+
+```go
+// Case 1: Process panic propagates.
+stage := customStage{
+    process: func(*pipeline.Request) (*pipeline.Request, error) {
+        panic("custom stage panic")
+    },
+    name: func() string { return "custom" },
+}
+
+// Case 2: Name panic replaces a returned error.
+stage := customStage{
+    process: func(req *pipeline.Request) (*pipeline.Request, error) {
+        return req, errors.New("stage failed")
+    },
+    name: func() string { panic("stage name panic") },
+}
+```
+
+**Observed results**
+
+```text
+Run panicked instead of returning the documented StageError: custom stage panic
+Name panic replaced the documented StageError: stage name panic
+```
+
+**Impact**
+
+Callers following the documented error contract may install ordinary error
+handling but omit panic recovery. The implementation policy itself is
+reasonable for caller-owned stages; the documentation currently describes a
+different observable behaviour.
+
+The unguarded `Stage.Name()` call also conflicts with Delivery round 2's
+statement that the sweep covered every caller-supplied `Name()` invoked on the
+request path.
+
+**Required before GO**
+
+Choose and document one consistent contract:
+
+- If custom-stage panics are deliberately not recovered, state explicitly that
+  they propagate and are not returned as `StageError`.
+- If `StageError` is promised when `Process` returns an error, obtain the stage
+  name through `safe.Name` so a broken name cannot replace that error.
+
+Add a focused test for the chosen behaviour.
+
+## 3. QA round 2 findings — resolved at their original inputs
+
+All three round 2 inputs pass on revision `03acda9`. The findings are retained
+below as historical evidence of what was re-verified.
 
 ### [Blocker] `Rule.Name()` panic still escapes `Pipeline.Run`
 
@@ -203,7 +278,7 @@ Determine the newest message from `Messages` independently of whether `Query`
 is populated, while continuing to avoid duplicating the current turn when both
 representations are present.
 
-## 3. QA round 1 findings — resolved at their original inputs
+## 4. QA round 1 findings — resolved at their original inputs
 
 The six findings below are retained as the historical round 1 record. Their
 exact original inputs all pass on revision `b5cdd38`; round 2 findings above
@@ -518,7 +593,7 @@ Narrow the documentation to built-in optimization dependency failures and
 document cancellation, custom-stage errors, and programming/configuration
 errors separately.
 
-## 4. Verification results
+## 5. Verification results
 
 ### Baseline
 
@@ -580,15 +655,15 @@ The reported package coverage values were reproduced:
 | `cache` | 97.2% |
 | `pipeline` | 97.0% |
 | `stores/mock` | 96.7% |
-| `providers/anthropic` | 95.1% |
+| `providers/anthropic` | 94.6% |
 | `providers/cli` | 94.3% |
-| `toolcache` | 94.7% |
+| `toolcache` | 93.7% |
 | `config` | 90.5% |
 | `lazyload` | 88.1% |
 
 The five packages named by the specification all exceed the required 80%.
 
-## 5. Areas reviewed with no demonstrated defect
+## 6. Areas reviewed with no demonstrated defect
 
 - Cache-aligner breakpoint computation is deterministic for identical inputs.
 - The core aligner does not place a breakpoint after retrieved chunks.
@@ -608,18 +683,16 @@ The five packages named by the specification all exceed the required 80%.
 
 The known gaps in `DELIVERY-1.md` §3 were not re-reported as defects.
 
-## 6. Release decision
+## 7. Release decision
 
 **Current decision: NO-GO**
 
-The six original round 1 criteria are satisfied at their reported inputs. The
-decision can change to **GO** when the round 2 findings are complete:
+The round 1 and round 2 criteria are satisfied at their reported inputs. The
+decision can change to **GO** when:
 
-1. Every method on a caller-supplied preprocess `Rule`, including `Name`, is
-   contained by the fail-open boundary.
-2. Cache `Get` panics degrade to misses, and cache `Set` panics preserve
-   successfully executed tool results.
-3. Anthropic serialization preserves dynamic-before-newest ordering when
-   `Query` is empty and the newest turn is carried by `Messages`.
-4. Regression tests cover these three cases.
-5. The full root and nested-module verification commands pass again.
+1. The custom-stage panic contract in `agentkit.go` and README matches the
+   deliberate runtime behaviour.
+2. A `Stage.Name()` panic cannot replace an error already returned by
+   `Stage.Process`, or that limitation is documented explicitly.
+3. A focused regression test pins the chosen contract.
+4. The full root and nested-module verification commands pass again.

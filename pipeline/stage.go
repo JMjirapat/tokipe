@@ -193,9 +193,14 @@ func (p *Pipeline) Run(ctx context.Context, req *Request) (*Response, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		// NOTE: a panic from Process is deliberately NOT recovered. See the
+		// Stage docs: a caller-supplied stage is the caller's own code, and
+		// swallowing its panic would hide their bug. Name(), however, is
+		// guarded — a broken name must never destroy an error Process already
+		// returned, which is a different failure entirely.
 		next, err := stage.Process(ctx, req)
 		if err != nil {
-			return nil, &StageError{Stage: stage.Name(), Err: err}
+			return nil, &StageError{Stage: safe.Name(stage.Name, UnnamedStage), Err: err}
 		}
 		if next != nil {
 			req = next
@@ -203,15 +208,24 @@ func (p *Pipeline) Run(ctx context.Context, req *Request) (*Response, error) {
 		if v, ok := req.Metadata[MetaShortCircuit]; ok {
 			resp, ok := v.(*Response)
 			if !ok {
-				return nil, &StageError{Stage: stage.Name(), Err: errBadShortCircuit}
+				return nil, &StageError{Stage: safe.Name(stage.Name, UnnamedStage), Err: errBadShortCircuit}
 			}
 			return resp, nil
 		}
 	}
 
+	// Routing is an optimization like any other: a Router that panics must
+	// cost us the routing decision, not the turn. It falls back to the
+	// pipeline's default client, exactly as a nil decision does.
 	client := p.client
 	if p.router != nil {
-		if d := p.router.Route(ctx, req); d.Client != nil {
+		d, err := safe.Value(func() (RouteDecision, error) {
+			return p.router.Route(ctx, req), nil
+		})
+		switch {
+		case err != nil:
+			req.SetMeta("router.reason", "router_panicked")
+		case d.Client != nil:
 			client = d.Client
 			req.SetMeta("router.reason", d.Reason)
 			req.SetMeta("router.client", safe.Name(d.Client.Name, UnnamedClient))
@@ -237,3 +251,7 @@ const errBadShortCircuit = constError("metadata " + MetaShortCircuit + " is not 
 // UnnamedClient is reported in Metadata when a ModelClient's Name method
 // panics or returns "".
 const UnnamedClient = "unnamed_client"
+
+// UnnamedStage names a StageError when the stage's own Name method panics or
+// returns "".
+const UnnamedStage = "unnamed_stage"
