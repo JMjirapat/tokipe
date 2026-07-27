@@ -67,7 +67,34 @@ console.anthropic.com. The run below costs a few cents.
 ANTHROPIC_API_KEY=sk-... go test -run TestPromptCachingAcrossTurns -v ./providers/anthropic/
 ```
 
-Without the variable set, the test **skips** — CI stays green. Per spec §3.1,
+Without the variable set, the test **skips** — CI stays green.
+
+### Pointing it somewhere else
+
+Two optional variables run the same test against a gateway, a regional
+endpoint, or a local recording proxy:
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `ANTHROPIC_BASE_URL` | endpoint root, **without** `/v1/messages` | `https://api.anthropic.com` |
+| `ANTHROPIC_MODEL` | model id | the client's `DefaultModel` |
+
+```bash
+ANTHROPIC_API_KEY=sk-... \
+ANTHROPIC_BASE_URL=https://my-gateway.example.com \
+ANTHROPIC_MODEL=claude-sonnet-5 \
+  go test -run TestPromptCachingAcrossTurns -v ./providers/anthropic/
+```
+
+The test logs `endpoint=… model=…` before anything else, and both failure
+messages repeat them — against a custom endpoint, a gateway that strips
+`cache_control` or drops the usage fields is a far likelier explanation than a
+defect in this client.
+
+The model is not a cosmetic override. **The minimum cacheable prefix is
+model-dependent**, so a smaller model may refuse to cache the prefix this test
+builds. That surfaces as `cache_creation_input_tokens == 0` on turn 1 —
+lengthen the prefix rather than relaxing the assertion. Per spec §3.1,
 this test may be skipped in CI but must **not** be skipped in code-review
 sign-off before a release tag.
 
