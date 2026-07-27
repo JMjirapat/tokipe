@@ -8,24 +8,24 @@ import (
 )
 
 // TestIntegrationSearch runs against a real PostgreSQL with the pgvector
-// extension. It is skipped unless AGENTKIT_PGVECTOR_DSN is set, e.g.:
+// extension. It is skipped unless TOKIPE_PGVECTOR_DSN is set, e.g.:
 //
-//	docker run -d --name agentkit-pgvector -p 5433:5432 \
+//	docker run -d --name tokipe-pgvector -p 5433:5432 \
 //	  -e POSTGRES_PASSWORD=postgres pgvector/pgvector:pg16
-//	AGENTKIT_PGVECTOR_DSN='postgres://postgres:postgres@localhost:5433/postgres' \
+//	TOKIPE_PGVECTOR_DSN='postgres://postgres:postgres@localhost:5433/postgres' \
 //	  go test ./... -run TestIntegration -v
 //
 // The test creates and drops its own throwaway table.
 func TestIntegrationSearch(t *testing.T) {
-	dsn := os.Getenv("AGENTKIT_PGVECTOR_DSN")
+	dsn := os.Getenv("TOKIPE_PGVECTOR_DSN")
 	if dsn == "" {
-		t.Skip("AGENTKIT_PGVECTOR_DSN not set; skipping pgvector integration test")
+		t.Skip("TOKIPE_PGVECTOR_DSN not set; skipping pgvector integration test")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	store, pool, err := Connect(ctx, dsn, Config{Table: "agentkit_it_chunks"})
+	store, pool, err := Connect(ctx, dsn, Config{Table: "tokipe_it_chunks"})
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -39,18 +39,18 @@ func TestIntegrationSearch(t *testing.T) {
 	}
 
 	exec(`CREATE EXTENSION IF NOT EXISTS vector`)
-	exec(`DROP TABLE IF EXISTS agentkit_it_chunks`)
-	exec(`CREATE TABLE agentkit_it_chunks (
+	exec(`DROP TABLE IF EXISTS tokipe_it_chunks`)
+	exec(`CREATE TABLE tokipe_it_chunks (
 		id serial PRIMARY KEY,
 		content text NOT NULL,
 		source_url text,
 		embedding vector(3)
 	)`)
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DROP TABLE IF EXISTS agentkit_it_chunks`)
+		_, _ = pool.Exec(context.Background(), `DROP TABLE IF EXISTS tokipe_it_chunks`)
 	})
 
-	exec(`INSERT INTO agentkit_it_chunks (content, source_url, embedding) VALUES
+	exec(`INSERT INTO tokipe_it_chunks (content, source_url, embedding) VALUES
 		($1, $2, $3), ($4, $5, $6)`,
 		"near", "https://near", FormatVector([]float32{1, 0, 0}),
 		"far", "https://far", FormatVector([]float32{0, 1, 0}))

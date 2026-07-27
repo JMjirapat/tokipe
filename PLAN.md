@@ -1,4 +1,4 @@
-# agentkit — implementation plan
+# tokipe — implementation plan
 
 Full requirements: [docs/spec.md](docs/spec.md). This file is the execution
 state: what is decided, what is done, who is doing what.
@@ -7,7 +7,7 @@ state: what is decided, what is done, who is doing what.
 
 | # | Question | Decision |
 |---|---|---|
-| 1 | Module path | **`github.com/JMjirapat/tokipe`.** Was the spec's `agentkit` placeholder through v1.0.0; renamed afterwards so the path matches the repository. The root package is still named `agentkit` — see below. |
+| 1 | Module path | **`github.com/JMjirapat/tokipe`.** Was the spec's `tokipe` placeholder through v1.0.0; renamed afterwards so the path matches the repository. The root package is still named `tokipe` — see below. |
 | 2 | License | Apache-2.0 |
 | 3 | `providers/anthropic` placement | **Stays in the core module.** It was built on raw `net/http`, so it adds no dependency and the zero-dep guarantee holds (verified by `go list -deps`). Only `stores/pgvector` (pgx) and `toolcache/redis` (go-redis) are nested modules. |
 | 4 | Minimum Go | 1.23 (toolchain on this machine is go1.23.3) |
@@ -15,18 +15,18 @@ state: what is decided, what is done, who is doing what.
 ### Module path vs package name
 
 The module is `github.com/JMjirapat/tokipe`; the root package is still
-`package agentkit`. So an importer writes:
+`package tokipe`. So an importer writes:
 
 ```go
 import "github.com/JMjirapat/tokipe"
 
-kit := agentkit.New(client)   // package name, not path
+kit := tokipe.New(client)   // package name, not path
 ```
 
 That is legal Go and not unusual — a repository and the library it publishes
 need not share a name — but it does surprise people, because the convention is
 for the last path element to match the package name. Renaming the package would
-touch every example, doc and `agentkit.New` reference in the tree; it is a
+touch every example, doc and `tokipe.New` reference in the tree; it is a
 separate decision, deliberately not bundled into the path rename.
 
 ## Documented deviations from the spec's contracts
@@ -66,7 +66,7 @@ separate decision, deliberately not bundled into the path rename.
 | Measurable % of requests short-circuited by preprocess | 3/12 turns (25%) in the benchmark workload |
 | `CacheReadTokens > 0` on turns after the first, real endpoint | **BLOCKED — see below.** Test written and skips cleanly without a key: `providers/anthropic/integration_test.go` |
 | Routing split across two tiers with no per-request routing code | `examples/local-routing` |
-| Core usable from two independent example programs with no shared non-agentkit code | `examples/rag-chatbot` and `examples/local-routing` |
+| Core usable from two independent example programs with no shared non-tokipe code | `examples/rag-chatbot` and `examples/local-routing` |
 
 ### Blocked: real-endpoint prompt-caching verification
 
@@ -80,7 +80,7 @@ API access.
 
 What this does and does not leave unverified:
 
-- **Verified without a key** — that agentkit emits `cache_control: ephemeral`
+- **Verified without a key** — that tokipe emits `cache_control: ephemeral`
   on the right content blocks, truncates to the four deepest breakpoints, and
   parses `cache_read_input_tokens` / `cache_creation_input_tokens` into
   `Response.Usage`. All covered by `client_test.go` against `httptest`.
@@ -95,9 +95,9 @@ prompt-caching benefit as **designed and unit-tested, not field-proven**, and
 do not quote a cache-hit rate in any external material.
 
 `providers/cli` does not close this gap and is not meant to. It removes the
-key requirement for *running* agentkit, but a CLI exposes no `cache_control`
+key requirement for *running* tokipe, but a CLI exposes no `cache_control`
 hooks, so it cannot verify our breakpoint placement. Its live test
-(`AGENTKIT_CLI_LIVE=1`) has been run and passes against `claude` 2.1.x,
+(`TOKIPE_CLI_LIVE=1`) has been run and passes against `claude` 2.1.x,
 returning real content, model id, and usage.
 
 ### Known gaps carried into v1.1

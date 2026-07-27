@@ -99,13 +99,13 @@ jobs:
       - name: run the integration tests
         working-directory: stores/pgvector
         env:
-          AGENTKIT_PGVECTOR_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+          TOKIPE_PGVECTOR_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
         run: |
           go test -race -count=1 -run TestIntegration -v ./...
       - name: fail if the integration tests were skipped
         working-directory: stores/pgvector
         env:
-          AGENTKIT_PGVECTOR_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+          TOKIPE_PGVECTOR_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
         # A skipped credential-gated test looks identical to a passing one in
         # CI output. This job exists specifically to run them, so a skip here is
         # a failure — otherwise the coverage claim silently rots.

@@ -11,7 +11,7 @@ import (
 )
 
 // Executor runs a tool call for real when the cache cannot answer it.
-// It is supplied by the caller — agentkit never executes tools itself.
+// It is supplied by the caller — tokipe never executes tools itself.
 type Executor func(ctx context.Context, call pipeline.ToolCall) (any, error)
 
 // MetaResults is the Request.Metadata key under which Stage publishes tool

@@ -47,7 +47,7 @@ func main() {
 		router.WithMetrics(rec),
 	)
 
-	kit := agentkit.New(cloud, config.WithMetrics(rec), config.WithRouter(heuristic))
+	kit := tokipe.New(cloud, config.WithMetrics(rec), config.WithRouter(heuristic))
 
 	for _, j := range workload() {
 		if _, err := kit.Run(ctx, j.req); err != nil {
@@ -89,7 +89,7 @@ func retuned(ctx context.Context) {
 		router.WithWeights(router.Weights{Length: 0.3, Code: 0.2, Chunks: 0.5}),
 		router.WithChunkSaturation(8),
 	)
-	kit := agentkit.New(cloud, config.WithRouter(chunkHeavy))
+	kit := tokipe.New(cloud, config.WithRouter(chunkHeavy))
 
 	fmt.Println("\nsame workload, chunk-weighted policy (Chunks 0.2 → 0.5):")
 	for _, j := range workload() {

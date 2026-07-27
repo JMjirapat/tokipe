@@ -3,7 +3,7 @@
 //
 // It exists because API credit and a subscription are different products. If
 // you have a Claude Pro, Codex, or OpenCode plan but no API key, the CLI those
-// plans authenticate is a perfectly good backend for agentkit — no key, no
+// plans authenticate is a perfectly good backend for tokipe — no key, no
 // separate billing.
 //
 // The adapter is provider-agnostic by construction: it knows how to run a
@@ -19,7 +19,7 @@
 //   - Request.CacheBreakpoints cannot be transmitted. They are ignored, not
 //     silently mistranslated.
 //   - Reported Usage is real, but it describes the CLI's prompt, not yours.
-//     Do not use it to measure agentkit's cache alignment.
+//     Do not use it to measure tokipe's cache alignment.
 //
 // Everything else in the pipeline still pays off: preprocess rules still skip
 // calls entirely, the tool cache still stops re-execution, compression still

@@ -163,7 +163,7 @@ func TestPromptReachesStdinIntact(t *testing.T) {
 func TestShellMetacharactersAreNotInterpreted(t *testing.T) {
 	c := mustClient(t, helperConfig(t, "echo_stdin"))
 
-	nasty := "$(touch /tmp/agentkit-pwned); `id`; rm -rf / & echo done | tee x > y"
+	nasty := "$(touch /tmp/tokipe-pwned); `id`; rm -rf / & echo done | tee x > y"
 	resp, err := c.Send(context.Background(), &pipeline.Request{Query: nasty})
 	if err != nil {
 		t.Fatalf("Send: %v", err)
@@ -171,8 +171,8 @@ func TestShellMetacharactersAreNotInterpreted(t *testing.T) {
 	if resp.Content != nasty {
 		t.Fatalf("prompt was altered in transit:\n got: %q\nwant: %q", resp.Content, nasty)
 	}
-	if _, err := os.Stat("/tmp/agentkit-pwned"); err == nil {
-		os.Remove("/tmp/agentkit-pwned")
+	if _, err := os.Stat("/tmp/tokipe-pwned"); err == nil {
+		os.Remove("/tmp/tokipe-pwned")
 		t.Fatal("command substitution executed — the prompt reached a shell")
 	}
 }

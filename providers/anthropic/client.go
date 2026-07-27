@@ -2,7 +2,7 @@
 // Messages API using nothing but net/http and encoding/json.
 //
 // It is a separate Go module (see go.mod in this directory) purely so the
-// agentkit core never grows a dependency on it; the module itself has zero
+// tokipe core never grows a dependency on it; the module itself has zero
 // third-party dependencies.
 //
 // See docs/spec.md §3 Phase 2.1.

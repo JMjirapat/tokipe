@@ -1,6 +1,6 @@
-# agentkit
+# tokipe
 
-`agentkit` is a Go library for reducing the input-token cost and latency of
+`tokipe` is a Go library for reducing the input-token cost and latency of
 LLM-powered applications. It runs an ordered, opt-in pipeline before the final
 model call:
 
@@ -64,8 +64,8 @@ import (
 )
 
 func main() {
-	client := mock.New("demo-model", "Hello from agentkit")
-	kit := agentkit.New(client) // no options = pass-through
+	client := mock.New("demo-model", "Hello from tokipe")
+	kit := tokipe.New(client) // no options = pass-through
 
 	resp, err := kit.Run(context.Background(), &pipeline.Request{
 		Query: "Say hello",
@@ -83,7 +83,7 @@ func main() {
 For a useful production pipeline, enable only the capabilities you need:
 
 ```go
-kit := agentkit.New(defaultClient,
+kit := tokipe.New(defaultClient,
 	config.WithMetrics(recorder),
 	config.WithPreprocess(rules...),
 	config.WithToolCache(toolcache.NewMemoryCache(), executeTool, 30*time.Minute),
@@ -105,7 +105,7 @@ resp, err := kit.Run(ctx, &pipeline.Request{
 })
 ```
 
-Every option is independent. `agentkit.New(client)` is a valid pass-through
+Every option is independent. `tokipe.New(client)` is a valid pass-through
 baseline and is the right starting point for measuring savings.
 
 ## Choose a model backend
@@ -120,7 +120,7 @@ client, err := anthropic.New(anthropic.Config{
 ```
 
 The Anthropic adapter uses `net/http`, reports token/cache usage, and translates
-agentkit cache breakpoints into Anthropic `cache_control` blocks. It implements
+tokipe cache breakpoints into Anthropic `cache_control` blocks. It implements
 true incremental streaming over the Messages API's server-sent events.
 
 ### Existing CLI subscription
@@ -270,7 +270,7 @@ A long agent loop's dominant cost is history that never stops growing.
 `WithHistoryBudget` enforces the budget `budget.Policy` already described:
 
 ```go
-kit := agentkit.New(client,
+kit := tokipe.New(client,
 	config.WithHistoryBudget(budget.DefaultPolicy(), nil), // nil = char estimate
 	config.WithCacheAlignment(),
 )
@@ -357,10 +357,10 @@ and each fail-open event reports itself:
 
 ```go
 rec := metrics.DegradeFunc(baseRecorder, func(d metrics.Degradation) {
-	slog.Warn("agentkit degraded",
+	slog.Warn("tokipe degraded",
 		"stage", d.Stage, "reason", d.Reason, "detail", d.Detail, "err", d.Err)
 })
-kit := agentkit.New(client, config.WithMetrics(rec), ...)
+kit := tokipe.New(client, config.WithMetrics(rec), ...)
 ```
 
 `Reason` is short and stable, so it groups in a dashboard and works in an alert

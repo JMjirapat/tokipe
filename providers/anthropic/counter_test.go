@@ -101,7 +101,7 @@ func TestEmptyTextCostsNoRequest(t *testing.T) {
 	}
 }
 
-// An error means "unknown", and every agentkit caller treats that as a reason to
+// An error means "unknown", and every tokipe caller treats that as a reason to
 // skip trimming rather than fail. These cases must therefore be errors, not
 // zero counts that would silently look like free text.
 func TestCounterFailuresAreErrorsNotZero(t *testing.T) {

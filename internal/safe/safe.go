@@ -1,4 +1,4 @@
-// Package safe contains the recover boundary agentkit puts around
+// Package safe contains the recover boundary tokipe puts around
 // caller-supplied code.
 //
 // Every optimization stage calls something the caller wrote: a preprocess

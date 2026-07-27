@@ -57,7 +57,7 @@ func NewTokenCounter(c *Client) (*TokenCounter, error) {
 
 // CountTokens implements budget.TokenCounter.
 //
-// An error means "unknown"; every caller in agentkit treats that as a reason to
+// An error means "unknown"; every caller in tokipe treats that as a reason to
 // skip trimming rather than to fail the turn, so a rate-limited or unreachable
 // endpoint degrades to no trimming rather than to a broken request.
 func (t *TokenCounter) CountTokens(ctx context.Context, text string) (int, error) {

@@ -1,6 +1,6 @@
 // Package examples holds reference preprocess.Rule implementations. It is a
 // demonstration of the extension point and is deliberately NOT imported by any
-// core agentkit package.
+// core tokipe package.
 package examples
 
 import (

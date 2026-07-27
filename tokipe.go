@@ -1,8 +1,8 @@
-// Package agentkit assembles LLM token-optimization stages into a pipeline.
+// Package tokipe assembles LLM token-optimization stages into a pipeline.
 //
 // Quickstart:
 //
-//	kit := agentkit.New(client,
+//	kit := tokipe.New(client,
 //	    config.WithPreprocess(myRules...),
 //	    config.WithRAG(embedder, store, 5),
 //	    config.WithDefaultCompression(),
@@ -31,14 +31,14 @@
 // recovering it would hide your bug rather than tolerate a third party's. If
 // you want that panic contained, recover inside your own Process method.
 //
-// Everything agentkit itself calls into — preprocess rules, tool executors,
+// Everything tokipe itself calls into — preprocess rules, tool executors,
 // compressors, embedders, vector stores, routers, and every Name method — is
 // wrapped, and a panic there is treated exactly like the equivalent error.
 //
 // New enforces the stage ordering the spec requires (retrieval before
 // compression, both before cache alignment, routing last). Callers who need a
 // different order must compose pipeline.New directly and own that decision.
-package agentkit
+package tokipe
 
 import (
 	"github.com/JMjirapat/tokipe/config"

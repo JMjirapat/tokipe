@@ -38,7 +38,7 @@ func newRecorder(t *testing.T, opts ...akotel.Option) (*akotel.Recorder, *metric
 	reader := metric.NewManualReader()
 	provider := metric.NewMeterProvider(metric.WithReader(reader))
 	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
-	return akotel.New(provider.Meter("agentkit-test"), opts...), reader
+	return akotel.New(provider.Meter("tokipe-test"), opts...), reader
 }
 
 func TestSatisfiesEveryRecorderInterface(t *testing.T) {
@@ -48,7 +48,7 @@ func TestSatisfiesEveryRecorderInterface(t *testing.T) {
 	var _ akmetrics.GaugeRecorder = rec
 	var _ akmetrics.DegradationReporter = rec
 
-	// The capability must survive agentkit's safety wrapper — where a Phase 7
+	// The capability must survive tokipe's safety wrapper — where a Phase 7
 	// bug previously hid the optional interfaces behind the wrapper.
 	if !akmetrics.SupportsHistograms(akmetrics.Or(rec)) {
 		t.Error("histogram support lost through metrics.Or")
@@ -58,12 +58,12 @@ func TestSatisfiesEveryRecorderInterface(t *testing.T) {
 func TestCountersHistogramsAndGaugesReachOTel(t *testing.T) {
 	rec, reader := newRecorder(t)
 
-	akmetrics.Inc(rec, "agentkit.test_counter", map[string]string{"stage": "rag"})
+	akmetrics.Inc(rec, "tokipe.test_counter", map[string]string{"stage": "rag"})
 	akmetrics.Observe(rec, akmetrics.StageLatency, 12.5, map[string]string{"stage": "compress"})
-	akmetrics.Set(rec, "agentkit.test_gauge", 0.75, nil)
+	akmetrics.Set(rec, "tokipe.test_gauge", 0.75, nil)
 
 	got := names(collect(t, reader))
-	for _, want := range []string{"agentkit.test_counter", akmetrics.StageLatency, "agentkit.test_gauge"} {
+	for _, want := range []string{"tokipe.test_counter", akmetrics.StageLatency, "tokipe.test_gauge"} {
 		if !got[want] {
 			t.Errorf("%q was not exported; got %v", want, got)
 		}
@@ -72,12 +72,12 @@ func TestCountersHistogramsAndGaugesReachOTel(t *testing.T) {
 
 func TestLabelsBecomeAttributes(t *testing.T) {
 	rec, reader := newRecorder(t)
-	akmetrics.Inc(rec, "agentkit.labelled", map[string]string{"stage": "toolcache", "reason": "miss"})
+	akmetrics.Inc(rec, "tokipe.labelled", map[string]string{"stage": "toolcache", "reason": "miss"})
 
 	var found bool
 	for _, sm := range collect(t, reader).ScopeMetrics {
 		for _, m := range sm.Metrics {
-			if m.Name != "agentkit.labelled" {
+			if m.Name != "tokipe.labelled" {
 				continue
 			}
 			sum, ok := m.Data.(metricdata.Sum[int64])
@@ -97,18 +97,18 @@ func TestLabelsBecomeAttributes(t *testing.T) {
 	}
 }
 
-// Instrument creation is memoised, because agentkit asks for the same names on
+// Instrument creation is memoised, because tokipe asks for the same names on
 // every turn and OTel instrument creation is not free.
 func TestInstrumentsAreMemoisedAndNeverNil(t *testing.T) {
 	rec, _ := newRecorder(t)
 	for range 100 {
-		if rec.Counter("agentkit.repeated") == nil {
+		if rec.Counter("tokipe.repeated") == nil {
 			t.Fatal("Counter returned nil")
 		}
-		if rec.Histogram("agentkit.h") == nil {
+		if rec.Histogram("tokipe.h") == nil {
 			t.Fatal("Histogram returned nil")
 		}
-		if rec.Gauge("agentkit.g") == nil {
+		if rec.Gauge("tokipe.g") == nil {
 			t.Fatal("Gauge returned nil")
 		}
 	}
@@ -172,9 +172,9 @@ func TestConcurrentUse(t *testing.T) {
 		go func(i int) {
 			defer func() { done <- struct{}{} }()
 			for range 50 {
-				akmetrics.Inc(rec, "agentkit.concurrent", map[string]string{"g": "x"})
-				akmetrics.Observe(rec, "agentkit.concurrent_h", float64(i), nil)
-				akmetrics.Set(rec, "agentkit.concurrent_g", float64(i), nil)
+				akmetrics.Inc(rec, "tokipe.concurrent", map[string]string{"g": "x"})
+				akmetrics.Observe(rec, "tokipe.concurrent_h", float64(i), nil)
+				akmetrics.Set(rec, "tokipe.concurrent_g", float64(i), nil)
 				akmetrics.Degrade(rec, akmetrics.Degradation{Stage: "s", Reason: "r"})
 			}
 		}(i)

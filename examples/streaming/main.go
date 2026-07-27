@@ -46,7 +46,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	kit := agentkit.New(streamer,
+	kit := tokipe.New(streamer,
 		config.WithMetrics(rec),
 		config.WithPreprocess(shaRule{}),
 		config.WithCacheAlignment(),
@@ -97,7 +97,7 @@ func main() {
 
 	// Same pipeline, a client that cannot stream: RunStream still works.
 	fmt.Printf("\n%s\n▸ a non-streaming client, through the same RunStream\n  ", strings.Repeat("─", 64))
-	plainKit := agentkit.New(plain, config.WithCacheAlignment())
+	plainKit := tokipe.New(plain, config.WithCacheAlignment())
 	seq, err := plainKit.RunStream(context.Background(), &pipeline.Request{Query: "and this?"})
 	if err != nil {
 		log.Fatalf("RunStream: %v", err)

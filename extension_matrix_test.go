@@ -1,4 +1,4 @@
-package agentkit_test
+package tokipe_test
 
 import (
 	"context"
@@ -38,15 +38,15 @@ import (
 // rather than claimed away.
 //
 // Fixing instances one at a time was losing to that pattern. This table
-// enumerates every method agentkit calls on caller-supplied code and asserts
+// enumerates every method tokipe calls on caller-supplied code and asserts
 // the contract for each, so a new extension point has to be added here before
 // it can be forgotten.
 //
-// The rule: agentkit contains panics in code IT calls into. It does not
+// The rule: tokipe contains panics in code IT calls into. It does not
 // contain panics in the caller's own pipeline.Stage.
 
 type matrixCase struct {
-	// what agentkit calls into
+	// what tokipe calls into
 	point string
 	// options installing a version of it that panics on that method
 	opts []config.Option
@@ -152,7 +152,7 @@ func TestEveryCallerSuppliedMethodHonoursItsPanicContract(t *testing.T) {
 	for _, tc := range matrixCases() {
 		t.Run(tc.point, func(t *testing.T) {
 			model := mock.New("m", "answer")
-			kit := agentkit.New(model, tc.opts...)
+			kit := tokipe.New(model, tc.opts...)
 
 			var panicked any
 			var resp *pipeline.Response
@@ -202,7 +202,7 @@ func TestEveryCallerSuppliedMethodHonoursItsPanicContract(t *testing.T) {
 // that error is the useful signal, the name is only a label.
 func TestStageNamePanicPreservesTheUnderlyingError(t *testing.T) {
 	sentinel := errors.New("stage failed")
-	kit := agentkit.New(mock.New("m", "answer"), config.WithStage(customStage{
+	kit := tokipe.New(mock.New("m", "answer"), config.WithStage(customStage{
 		process: func(r *pipeline.Request) (*pipeline.Request, error) { return r, sentinel },
 		name:    func() string { panic("stage name panic") },
 	}))
@@ -223,7 +223,7 @@ func TestStageNamePanicPreservesTheUnderlyingError(t *testing.T) {
 // A panicking Router costs the routing decision, not the turn.
 func TestPanickingRouterFallsBackToTheDefaultClient(t *testing.T) {
 	fallback := mock.New("fallback", "answer")
-	kit := agentkit.New(fallback, config.WithRouter(panicRouter{}))
+	kit := tokipe.New(fallback, config.WithRouter(panicRouter{}))
 
 	req := &pipeline.Request{Query: "q"}
 	resp, err := kit.Run(context.Background(), req)
@@ -278,7 +278,7 @@ type panicCounter struct{}
 func (panicCounter) Inc(map[string]string) { panic("counter inc panic") }
 
 // A Recorder that hands back a nil Counter — a plausible bug in a caller's
-// backend, and a nil-pointer dereference if agentkit trusts it.
+// backend, and a nil-pointer dereference if tokipe trusts it.
 type nilCounterRecorder struct{}
 
 func (nilCounterRecorder) Counter(string) metrics.Counter { return nil }
@@ -287,7 +287,7 @@ func (nilCounterRecorder) Counter(string) metrics.Counter { return nil }
 // into something a machine checks.
 //
 // Round 4 caught that claim being false: the matrix said it enumerated every
-// method agentkit calls on caller-supplied code, and it had omitted
+// method tokipe calls on caller-supplied code, and it had omitted
 // metrics.Recorder and metrics.Counter entirely. A prose claim about coverage
 // is worth nothing — this reflects over each extension interface and fails if
 // any method has no matrix case naming it.
@@ -326,7 +326,7 @@ func TestMatrixCoversEveryExtensionMethod(t *testing.T) {
 		"metrics.Counter":     reflect.TypeOf((*metrics.Counter)(nil)).Elem(),
 	}
 
-	// Methods agentkit never calls on the request path, with the reason.
+	// Methods tokipe never calls on the request path, with the reason.
 	exempt := map[string]string{
 		// Send IS the model call; its failure is the one error Run may return.
 		"pipeline.ModelClient.Send": "the model call itself, not an optimization",
@@ -437,7 +437,7 @@ func TestObservabilitySinkPanicsAreContained(t *testing.T) {
 			model := mock.New("m", "answer")
 			// A pipeline that exercises counters, histograms, gauges and a
 			// degradation in one turn.
-			kit := agentkit.New(model,
+			kit := tokipe.New(model,
 				config.WithMetrics(rec),
 				config.WithRAG(panicEmbedder{}, panicStore{}, 3), // forces a degradation
 				config.WithCacheAlignment(),

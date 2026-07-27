@@ -232,10 +232,10 @@ Both of these *remove* content, and both fail quietly if they are wrong.
 
 ### H6. The module rename
 
-- `"agentkit.stage_latency_ms"` and `"agentkit.stage_degraded"` are metric
+- `"tokipe.stage_latency_ms"` and `"tokipe.stage_degraded"` are metric
   names, not import paths, and must NOT have been rewritten. A blanket rename
   would have broken every dashboard and alert rule built on them.
-- No stale `agentkit/...` import path anywhere buildable.
+- No stale `tokipe/...` import path anywhere buildable.
   `docs/spec.md` is deliberately excluded — it is the historical brief.
 - All four `go.mod` files and their `replace` directives agree.
 - `v1.0.0` and `v1.0.0-agentkit-path` point where DELIVERY-2 §4.8 says.
@@ -272,9 +272,9 @@ Attack those guards directly:
   | Test | Gate | Cost |
   |---|---|---|
   | `TestPromptCachingAcrossTurns` | `ANTHROPIC_API_KEY` | two billed API calls |
-  | `TestLiveCLIs` | `AGENTKIT_CLI_LIVE=1` | subscription quota, ~15s |
-  | pgvector integration | `AGENTKIT_PGVECTOR_DSN` | needs a database |
-  | `TestLiveCLIStreaming` | `AGENTKIT_CLI_LIVE=1` | subscription quota, ~20s |
+  | `TestLiveCLIs` | `TOKIPE_CLI_LIVE=1` | subscription quota, ~15s |
+  | pgvector integration | `TOKIPE_PGVECTOR_DSN` | needs a database |
+  | `TestLiveCLIStreaming` | `TOKIPE_CLI_LIVE=1` | subscription quota, ~20s |
 
 - `examples/cli-provider` and `examples/streaming` default to mocks or a dry
   run and exit 0 with no CLI installed. `-live` / `-cli` spend real quota.
@@ -310,7 +310,7 @@ Not defects; do not report them:
 - Tool-result summarisation: deferred, because those results live in Metadata
   as arbitrary `any` and truncating them safely needs a contract that does not
   exist yet.
-- The root package being `agentkit` at a path ending in `tokipe` — a known open
+- The root package being `tokipe` at a path ending in `tokipe` — a known open
   decision in PLAN.md, not a defect.
 - Nothing being pushed yet
 - Style preferences with no behavioural consequence

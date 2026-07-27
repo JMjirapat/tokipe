@@ -39,7 +39,7 @@ func main() {
 	rec := metrics.NewInMemory()
 
 	// ── tools ──────────────────────────────────────────────────────────────
-	// The agent's real tool executor. agentkit never runs tools itself; it
+	// The agent's real tool executor. tokipe never runs tools itself; it
 	// only decides when a call can be answered from cache instead.
 	executions := 0
 	exec := func(_ context.Context, call pipeline.ToolCall) (any, error) {
@@ -76,7 +76,7 @@ func main() {
 	cheap := mock.New("local-8b", "done")
 	strong := mock.New("cloud-frontier", "done")
 
-	kit := agentkit.New(strong,
+	kit := tokipe.New(strong,
 		config.WithMetrics(rec),
 		config.WithPreprocess(gitShaRule{}),
 		config.WithToolCache(toolcache.NewMemoryCache(), exec, 10*time.Minute),
@@ -202,7 +202,7 @@ func (gitShaRule) Handle(req *pipeline.Request) (*pipeline.Response, error) {
 }
 
 func mustTempRepo() string {
-	dir, err := os.MkdirTemp("", "agentkit-coding-agent-*")
+	dir, err := os.MkdirTemp("", "tokipe-coding-agent-*")
 	if err != nil {
 		log.Fatalf("temp dir: %v", err)
 	}

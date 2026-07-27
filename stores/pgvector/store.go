@@ -1,7 +1,7 @@
 // Package pgvector implements stores.VectorStore on top of PostgreSQL with the
 // pgvector extension, using jackc/pgx v5 and pgxpool.
 //
-// This is a separate Go module (see go.mod in this directory) so the agentkit
+// This is a separate Go module (see go.mod in this directory) so the tokipe
 // core stays stdlib-only. Import it explicitly if you want it.
 //
 // SQL SAFETY: every value is bound as a query parameter — user input is never

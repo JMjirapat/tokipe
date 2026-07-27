@@ -1,4 +1,4 @@
-// Command observability renders a terminal dashboard from agentkit's own
+// Command observability renders a terminal dashboard from tokipe's own
 // counters, histograms and degradation events.
 //
 //	go run ./examples/observability          # everything healthy
@@ -87,7 +87,7 @@ func build(rec metrics.Recorder, broken bool) (*pipeline.Pipeline, *int) {
 		counter = brokenCounter{}
 	}
 
-	kit := agentkit.New(mock.New("model", "an answer from the model"),
+	kit := tokipe.New(mock.New("model", "an answer from the model"),
 		config.WithMetrics(rec),
 		config.WithPreprocess(shaRule{broken: broken}),
 		config.WithToolCache(toolStore, exec, time.Minute),
@@ -137,7 +137,7 @@ func render(rec *metrics.Observability, turns int, broken bool, elapsed time.Dur
 	}
 	line := strings.Repeat("─", 68)
 
-	fmt.Printf("\n agentkit observability — %d turns in %v — %s\n%s\n",
+	fmt.Printf("\n tokipe observability — %d turns in %v — %s\n%s\n",
 		turns, elapsed.Round(time.Millisecond), mode, line)
 
 	// Counters.

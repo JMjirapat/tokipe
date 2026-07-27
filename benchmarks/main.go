@@ -1,5 +1,5 @@
 // Command benchmarks measures billed input tokens for the same synthetic
-// workload with and without agentkit, against the acceptance criterion in
+// workload with and without tokipe, against the acceptance criterion in
 // spec §3.2: ≥30% reduction in billed input tokens.
 //
 // Run: go run ./benchmarks
@@ -58,19 +58,19 @@ const (
 )
 
 func main() {
-	base := run("baseline (no agentkit)", baselineArm)
-	opt := run("agentkit v1 (full pipeline)", agentkitArm)
+	base := run("baseline (no tokipe)", baselineArm)
+	opt := run("tokipe v1 (full pipeline)", tokipeArm)
 	// Phase 6 is measured as a separate arm so its contribution is visible on
 	// its own rather than folded into the v1 headline. On this workload the
 	// conversation is only 12 turns, so trimming has little to bite on — a
 	// 100-turn loop is where it earns its keep. Reporting the small number is
 	// the point: an optimization that helps elsewhere should not be credited
 	// with a saving it did not produce here.
-	trimmed := run("agentkit + history budget", historyArm)
+	trimmed := run("tokipe + history budget", historyArm)
 
 	fmt.Printf("\n%s\n", strings.Repeat("═", 64))
 	report("baseline", base)
-	report("agentkit", opt)
+	report("tokipe", opt)
 	report("+history", trimmed)
 	reduction := 100 * (1 - opt.billed/base.billed)
 	withHistory := 100 * (1 - trimmed.billed/base.billed)
@@ -236,10 +236,10 @@ func baselineArm(m *meter) result {
 	return r
 }
 
-// historyArm is agentkitArm plus budget enforcement, so the two differ by
+// historyArm is tokipeArm plus budget enforcement, so the two differ by
 // exactly one option and the delta is attributable.
 func historyArm(m *meter) result {
-	r, dropped := agentkitArmWith(m, config.WithHistoryBudget(
+	r, dropped := tokipeArmWith(m, config.WithHistoryBudget(
 		budget.Policy{
 			RoutineStepBudget:   400,
 			NewQuestionBudget:   700,
@@ -252,12 +252,12 @@ func historyArm(m *meter) result {
 	return r
 }
 
-func agentkitArm(m *meter) result {
-	r, _ := agentkitArmWith(m)
+func tokipeArm(m *meter) result {
+	r, _ := tokipeArmWith(m)
 	return r
 }
 
-func agentkitArmWith(m *meter, extra ...config.Option) (result, int) {
+func tokipeArmWith(m *meter, extra ...config.Option) (result, int) {
 	execs := 0
 	exec := func(_ context.Context, call pipeline.ToolCall) (any, error) {
 		execs++
@@ -276,7 +276,7 @@ func agentkitArmWith(m *meter, extra ...config.Option) (result, int) {
 		config.WithCacheAlignment(),
 		config.WithRouter(router.NewHeuristicRouter(router.Tier{Client: m, MaxComplexity: 1.0})),
 	}
-	kit := agentkit.New(m, append(opts, extra...)...)
+	kit := tokipe.New(m, append(opts, extra...)...)
 
 	convo := []pipeline.Message{{Role: "system", Content: systemPrompt, Static: true}}
 	r := result{}
@@ -294,7 +294,7 @@ func agentkitArmWith(m *meter, extra ...config.Option) (result, int) {
 
 		resp, err := kit.Run(context.Background(), req)
 		if err != nil {
-			log.Fatalf("agentkit: %v", err)
+			log.Fatalf("tokipe: %v", err)
 		}
 		if resp.ShortCircuited {
 			r.shortCircuited++
@@ -364,7 +364,7 @@ func longLoop(policy *budget.Policy) (billed float64, dropped, peak int) {
 		opts = append(opts, config.WithHistoryBudget(*policy, nil,
 			history.WithSummarizer(history.ElisionSummarizer())))
 	}
-	kit := agentkit.New(m, opts...)
+	kit := tokipe.New(m, opts...)
 
 	convo := []pipeline.Message{{Role: "system", Content: systemPrompt, Static: true}}
 	counter := budget.CharEstimator{}

@@ -1,6 +1,6 @@
 // Package redis provides a Redis-backed toolcache.Cache.
 //
-// It lives in its own Go module so the core agentkit module keeps its
+// It lives in its own Go module so the core tokipe module keeps its
 // zero-third-party-dependency guarantee (docs/spec.md §2.6). Values are stored
 // JSON-encoded under a key derived from toolcache.HashToolCall, so an in-memory
 // and a Redis cache agree on what "the same tool call" means.
@@ -24,7 +24,7 @@ import (
 )
 
 // DefaultPrefix is prepended to every key written by this cache.
-const DefaultPrefix = "agentkit:toolcache:"
+const DefaultPrefix = "tokipe:toolcache:"
 
 // Client is the subset of *goredis.Client this cache needs. Declaring it here
 // keeps the cache testable and lets callers pass a cluster or ring client.

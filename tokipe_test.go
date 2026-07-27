@@ -1,4 +1,4 @@
-package agentkit_test
+package tokipe_test
 
 import (
 	"context"
@@ -49,7 +49,7 @@ func TestConcurrentRunsShareStatefulComponents(t *testing.T) {
 	strong := mock.New("strong", "ok")
 
 	// One kit, one cache, one aligner, one store — shared by every goroutine.
-	kit := agentkit.New(strong,
+	kit := tokipe.New(strong,
 		config.WithMetrics(rec),
 		config.WithPreprocess(evenRule{}),
 		config.WithToolCache(toolcache.NewMemoryCache(), exec, time.Minute),
@@ -153,9 +153,9 @@ func (evenRule) Handle(*pipeline.Request) (*pipeline.Response, error) {
 // benchmark's baseline arm relies on.
 func TestPassThroughPipelineIsTheBaseline(t *testing.T) {
 	client := mock.New("m", "answer")
-	kit := agentkit.New(client)
+	kit := tokipe.New(client)
 
-	req := &agentkit.Request{Query: "hello"}
+	req := &tokipe.Request{Query: "hello"}
 	resp, err := kit.Run(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -172,8 +172,8 @@ func TestNewFromConfigMatchesNew(t *testing.T) {
 	client := mock.New("m", "ok")
 	opts := []config.Option{config.WithDefaultCompression(), config.WithCacheAlignment()}
 
-	fromConfig := agentkit.NewFromConfig(client, config.New(opts...))
-	if _, err := fromConfig.Run(context.Background(), &agentkit.Request{Query: "hi"}); err != nil {
+	fromConfig := tokipe.NewFromConfig(client, config.New(opts...))
+	if _, err := fromConfig.Run(context.Background(), &tokipe.Request{Query: "hi"}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if client.Calls() != 1 {

@@ -1,4 +1,4 @@
-// Package pipeline defines the core contract of agentkit: the Request that
+// Package pipeline defines the core contract of tokipe: the Request that
 // flows through every optimization stage, the Response returned to the caller,
 // the Stage extension point, and the Pipeline that runs them in order.
 //

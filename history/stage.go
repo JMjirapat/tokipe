@@ -268,7 +268,7 @@ func (s *Stage) countOne(ctx context.Context, text string) (int, bool) {
 // trim drops middle messages until the request fits, then trims retrieved
 // chunks if messages alone were not enough.
 //
-// It mutates req in place and returns it, like every other stage in agentkit. An
+// It mutates req in place and returns it, like every other stage in tokipe. An
 // earlier version returned a copy, which looked safer and was worse: the
 // caller's own pointer never saw the trim, so Metadata written here was
 // invisible and a caller inspecting req after Run saw the untrimmed request.

@@ -323,9 +323,9 @@
         <thead><tr><th>#</th><th>Finding</th><th>Status</th></tr></thead>
         <tbody>
           <tr><td>B1</td><td>QA-approved work uncommitted</td><td><span class="pill ok">Fixed</span> committed</td></tr>
-          <tr><td>B2</td><td><code>v1.0.0</code> predates every QA fix</td><td><span class="pill warn">Held</span> waiting on D1 — tagging first would only have to be undone</td></tr>
+          <tr><td>B2</td><td><code>v1.0.0</code> predates every QA fix</td><td><span class="pill warn">Open</span> the one remaining step; D1 is settled, so the tag can now be placed</td></tr>
           <tr><td>B3</td><td>Two nested modules require an unresolvable version</td><td><span class="pill ok">Fixed</span> both require <code>v1.0.0</code>; end-to-end proof needs the push</td></tr>
-          <tr><td>D1</td><td><code>agentkit</code> vs <code>tokipe</code> naming</td><td><span class="pill no">Open</span> decision required</td></tr>
+          <tr><td>D1</td><td><code>agentkit</code> vs <code>tokipe</code> naming</td><td><span class="pill ok">Resolved</span> renamed to <code>tokipe</code> throughout</td></tr>
           <tr><td>D2</td><td>Benchmark label carries the full module path</td><td><span class="pill ok">Fixed</span></td></tr>
         </tbody>
       </table>
@@ -489,51 +489,65 @@ go run ./benchmarks</code></pre>
   </section>
 
   <section id="decisions">
-    <h2 class="sec"><span class="num">04</span> Decision required before tagging</h2>
-    <p class="sec-note">Not defects — but the first one stops being free the
-    moment a tag is pushed.</p>
+    <h2 class="sec"><span class="num">04</span> Decisions taken before tagging</h2>
+    <p class="sec-note">Not defects — but the first one stopped being free the
+    moment a tag was pushed, so it had to be settled here.</p>
 
     <div class="finding decision">
-      <span class="id">D1 · Decision</span>
-      <h3>Module, package and metric names disagree</h3>
-<pre><code>module   github.com/JMjirapat/tokipe
-package  agentkit                     <span class="dim">→ callers write agentkit.New()</span>
-metrics  "agentkit.stage_latency_ms"
-env      AGENTKIT_CLI_LIVE
-README   "# agentkit"</code></pre>
-      <p>This is legal Go and it works. It is also confusing: a user runs
-      <code>go get github.com/JMjirapat/tokipe</code> and then types
+      <span class="id">D1 · Resolved — renamed</span>
+      <h3>Module, package and metric names disagreed</h3>
+      <div class="table-wrap" style="margin:12px 0">
+        <table>
+          <thead><tr><th></th><th>As reviewed</th><th>Now</th></tr></thead>
+          <tbody>
+            <tr><td>Module</td><td><code>github.com/JMjirapat/tokipe</code></td><td>unchanged</td></tr>
+            <tr><td>Package</td><td><code>agentkit</code> — callers wrote <code>agentkit.New()</code></td><td><code>tokipe</code></td></tr>
+            <tr><td>Metrics</td><td><code>agentkit.stage_latency_ms</code></td><td><code>tokipe.stage_latency_ms</code></td></tr>
+            <tr><td>Env</td><td><code>AGENTKIT_CLI_LIVE</code>, <code>AGENTKIT_PGVECTOR_DSN</code></td><td><code>TOKIPE_*</code></td></tr>
+            <tr><td>README</td><td><code># agentkit</code></td><td><code># tokipe</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The split was legal Go and it worked. It was also confusing: a user ran
+      <code>go get github.com/JMjirapat/tokipe</code> and then typed
       <code>agentkit.New</code>.</p>
-      <p>The reason it belongs in a release review rather than a backlog is that
-      <b>v1.0 freezes it</b>. The package name is part of every importer's
-      source. The metric names are part of every dashboard and alert rule built
-      on top of the library. Changing either after publication is a breaking
-      change for both.</p>
-      <div class="fix"><b>If the rename to <code>tokipe</code> is wanted, it must
-      happen before the tag.</b> Otherwise <code>agentkit.New()</code> is the API
-      for the life of v1.</div>
+      <p>The reason it belonged in a release review rather than a backlog is that
+      <b>v1.0 would have frozen it</b>. A package name is part of every
+      importer's source; the metric names are part of every dashboard and alert
+      rule built on the library. Changing either after publication breaks both.
+      Before the tag it costs a mechanical rename; after it, a major version.</p>
+      <p>Two categories were deliberately left alone:</p>
+      <ul class="plain">
+        <li><b><code>v1.0.0-agentkit-path</code> is a real tag.</b> A first pass
+        renamed it in prose, which would have pointed readers at a tag that does
+        not exist.</li>
+        <li><b><code>docs/spec.md</code>, <code>DELIVERY-1.md</code>,
+        <code>QA-REPORT.md</code>, <code>QA-REPORT-2.md</code></b> are dated
+        records of work reviewed under the old name. Rewriting them would claim a
+        review happened against an artifact that did not yet exist.</li>
+      </ul>
     </div>
 
     <div class="finding decision">
-      <span class="id">D2 · Minor</span>
+      <span class="id">D2 · Resolved</span>
       <h3>Collateral from the module rename</h3>
-      <p><code>benchmarks/main.go:73</code> passes the full module path where a
-      short label belongs:</p>
+      <p><code>benchmarks/main.go:73</code> passed the full module path where a
+      short arm label belongs, so the benchmark printed:</p>
 <pre><code>github.com/JMjirapat/tokipe  billed=  2148</code></pre>
-      <p>This is the <b>only</b> place the rename damaged a string literal — every
-      metric name survived intact, which was checked explicitly across the whole
-      tree.</p>
+      <p>That was the <b>only</b> string literal the earlier module-path rename
+      damaged — every metric name survived it intact, which was checked
+      explicitly across the whole tree before concluding so.</p>
     </div>
   </section>
 
   <section id="sequence">
     <h2 class="sec"><span class="num">05</span> Recommended sequence</h2>
     <ol class="steps">
-      <li>Commit the QA round 2–4 work.</li>
-      <li>Decide <code>agentkit</code> versus <code>tokipe</code> — <b>this is the
-      last moment it is free</b>.</li>
-      <li>Fix the nested modules' <code>require</code> versions.</li>
-      <li>Fix the benchmark label.</li>
+      <li><s>Commit the QA round 2–4 work.</s> <b>done</b></li>
+      <li><s>Decide <code>agentkit</code> versus <code>tokipe</code>.</s>
+      <b>done — renamed</b></li>
+      <li><s>Fix the nested modules' <code>require</code> versions.</s> <b>done</b></li>
+      <li><s>Fix the benchmark label.</s> <b>done</b></li>
       <li>Delete the local <code>v1.0.0</code>; re-tag the final commit; tag the
       three submodules.</li>
       <li>Push, then verify <code>go get</code> end to end from a scratch

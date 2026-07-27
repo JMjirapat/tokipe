@@ -1,7 +1,7 @@
-// Package otel adapts agentkit's metrics interfaces to OpenTelemetry.
+// Package otel adapts tokipe's metrics interfaces to OpenTelemetry.
 //
 // It is a separate Go module (see go.mod in this directory) for the same reason
-// stores/pgvector and toolcache/redis are: the agentkit core is stdlib-only by
+// stores/pgvector and toolcache/redis are: the tokipe core is stdlib-only by
 // contract (spec §2.6), and the OTel SDK is a large dependency tree. A caller
 // who wants OTel opts into that tree; everyone else never sees it.
 //
@@ -13,7 +13,7 @@
 //	metrics.Degradation → a counter increment plus an optional callback
 //
 // Instruments are created lazily and memoised, because OTel instrument creation
-// is not free and agentkit asks for the same handful of names on every turn.
+// is not free and tokipe asks for the same handful of names on every turn.
 package otel
 
 import (
@@ -26,7 +26,7 @@ import (
 	akmetrics "github.com/JMjirapat/tokipe/metrics"
 )
 
-// Recorder implements agentkit's Recorder plus every optional interface.
+// Recorder implements tokipe's Recorder plus every optional interface.
 type Recorder struct {
 	meter metric.Meter
 
@@ -90,7 +90,7 @@ func (r *Recorder) Counter(name string) akmetrics.Counter {
 	}
 	inst, err := r.meter.Int64Counter(name)
 	if err != nil {
-		// An instrument agentkit cannot create is a metric it silently drops,
+		// An instrument tokipe cannot create is a metric it silently drops,
 		// never a failed turn. Returning nil lets metrics.Or substitute a no-op.
 		return nil
 	}
@@ -175,9 +175,9 @@ func (g *gauge) Set(v float64, labels map[string]string) {
 	g.inst.Record(context.Background(), v, metric.WithAttributes(attrs(labels)...))
 }
 
-// attrs converts agentkit's label map into OTel attributes.
+// attrs converts tokipe's label map into OTel attributes.
 //
-// agentkit's own labels are all low-cardinality by design — stage names, tool
+// tokipe's own labels are all low-cardinality by design — stage names, tool
 // names, reasons — which is what makes them safe as metric dimensions. A caller
 // passing a request id here would blow up their backend's cardinality, so that
 // is worth knowing rather than guarding against: this package cannot tell the

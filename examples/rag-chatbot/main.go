@@ -4,7 +4,7 @@
 // What it proves (spec §2.4.3, §2.4.6):
 //
 //   - RAG → compress → cache-align run in that order, and the order is chosen
-//     by agentkit rather than by this program.
+//     by tokipe rather than by this program.
 //   - Compression shrinks retrieved chunks without inventing content.
 //   - No cache breakpoint is ever anchored inside the retrieved-chunk segment,
 //     because that content changes every turn and would poison the cache.
@@ -65,7 +65,7 @@ func main() {
 	rec := metrics.NewInMemory()
 	client := mock.New("mock-model", "Retry on 429 with exponential backoff.")
 
-	kit := agentkit.New(client,
+	kit := tokipe.New(client,
 		config.WithMetrics(rec),
 		config.WithRAG(embedder, store, 2),
 		config.WithDefaultCompression(),

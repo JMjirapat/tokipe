@@ -89,6 +89,13 @@ QA Round 4 verified the fix and issued GO for the current working tree.
 | 7 | Observability — making fail-open visible instead of silent | `metrics`, `metrics/otel` (new nested module) |
 | 8 | AST code compression, chunk dedupe, pgvector CI, OpenAI-compatible provider | `compress`, `providers/openai` |
 | — | Module path is now `github.com/JMjirapat/tokipe` | everything |
+| — | Package, metric and env names renamed `agentkit` → `tokipe` before the v1.0.0 tag, because the tag would have frozen all three | everything |
+
+Documents dated before the rename — `docs/spec.md`, [DELIVERY-1.md](DELIVERY-1.md),
+[QA-REPORT.md](QA-REPORT.md) and [QA-REPORT-2.md](QA-REPORT-2.md) — still say
+`agentkit`. They are records of reviews that happened under that name and were
+left as written; see
+[PRODUCTION-READINESS.md §4](PRODUCTION-READINESS.md#4-decisions-taken-before-tagging).
 
 New public surface, all additive — nothing in the v1.0.0 freeze changed:
 
@@ -119,7 +126,7 @@ CGO_ENABLED=0 go build ./...
 | Three nested modules build and pass, on Go 1.23 | `cd <mod> && GOTOOLCHAIN=local go test -race ./...` | pgvector 14, redis 7, otel 7 |
 | v1 token reduction unchanged by any of this | `go run ./benchmarks` | **57.1%** (target ≥30%) |
 | Phase 6 saving, measured separately | same, long-loop section | **54.6%** over 100 turns, peak 1192 vs a 1200 budget |
-| Streaming works against real CLIs | `AGENTKIT_CLI_LIVE=1 go test -run TestLiveCLIStreaming ./providers/cli/` | claude, codex, opencode all stream |
+| Streaming works against real CLIs | `TOKIPE_CLI_LIVE=1 go test -run TestLiveCLIStreaming ./providers/cli/` | claude, codex, opencode all stream |
 | Fail-open survives every dependency failing | `go run ./examples/observability -break` | 40/40 turns succeed, 80 degradations logged |
 | Six examples run end to end | `go run ./examples/<name>` | all pass, no credentials |
 
@@ -128,7 +135,7 @@ Coverage after this delivery:
 | Package | Cov | | Package | Cov |
 |---|---|---|---|---|
 | `router` | 100.0% | | `history` | 94.4% |
-| `agentkit` (root) | 100.0% | | `providers/anthropic` | 93.2% |
+| `tokipe` (root) | 100.0% | | `providers/anthropic` | 93.2% |
 | `internal/safe` | 100.0% | | `toolcache` | 93.2% |
 | `preprocess` | 96.7% | | `metrics` | 91.1% |
 | `rag` | 97.9% | | `providers/cli` | 90.0% |
@@ -184,12 +191,12 @@ Each of these is a judgement call a reviewer may reasonably disagree with.
 6. **Bedrock was dropped from Phase 8 rather than half-built.** SigV4 needs the
    AWS SDK, which the stdlib-only core cannot take.
 
-7. **The module path is `.../tokipe` while the root package is `agentkit`.**
+7. **The module path is `.../tokipe` while the root package is `tokipe`.**
    Legal Go, mildly surprising. Renaming the package touches every example and
    doc; recorded in PLAN.md as a separate open decision.
 
 8. **The `v1.0.0` tag was moved.** The original pointed at a commit declaring
-   `module agentkit` — a path that no longer exists and would resolve for
+   `module tokipe` — a path that no longer exists and would resolve for
    nobody. It is preserved as `v1.0.0-agentkit-path`; `v1.0.0` now marks the
    first release on the real path. Nothing was ever published, so no consumer
    was affected.

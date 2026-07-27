@@ -80,7 +80,7 @@ func Degrade(r Recorder, d Degradation) {
 // It wraps an existing Recorder so counters keep working:
 //
 //	rec := metrics.DegradeFunc(base, func(d metrics.Degradation) {
-//	    slog.Warn("agentkit degraded", "stage", d.Stage, "reason", d.Reason, "err", d.Err)
+//	    slog.Warn("tokipe degraded", "stage", d.Stage, "reason", d.Reason, "err", d.Err)
 //	})
 func DegradeFunc(base Recorder, fn func(Degradation)) Recorder {
 	return &funcReporter{Recorder: Or(base), fn: fn}

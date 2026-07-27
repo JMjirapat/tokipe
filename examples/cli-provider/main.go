@@ -1,4 +1,4 @@
-// Command cli-provider runs agentkit against a command-line coding agent
+// Command cli-provider runs tokipe against a command-line coding agent
 // instead of an HTTP API — no API key, no separate billing, just whatever CLI
 // your subscription already authenticates.
 //
@@ -106,7 +106,7 @@ func main() {
 	rec := metrics.NewInMemory()
 	var toolExecs atomic.Int64
 
-	kit := agentkit.New(backend,
+	kit := tokipe.New(backend,
 		config.WithMetrics(rec),
 		// The big win with a CLI backend: these turns never spawn a process.
 		config.WithPreprocess(shaRule{}, arithmeticRule{}),
@@ -221,7 +221,7 @@ func turns() []turnSpec {
 		{label: "real question", query: "In one line: what is a prompt cache breakpoint?"},
 		{label: "deterministic — SHA validation", query: "validate sha 3f2a1c9d4e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c"},
 		{label: "deterministic — arithmetic", query: "compute 1287 * 43"},
-		// The tool has already been executed by agentkit — the result rides
+		// The tool has already been executed by tokipe — the result rides
 		// along in the prompt's <tool_results> block. The query says so
 		// explicitly, because a CLI agent has its own tools and will happily
 		// redo the work if you leave the door open.

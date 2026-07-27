@@ -16,7 +16,7 @@ if err != nil {
     return err
 }
 
-kit := agentkit.New(client, config.WithCacheAlignment())
+kit := tokipe.New(client, config.WithCacheAlignment())
 ```
 
 The client implements both `pipeline.ModelClient` and
@@ -32,7 +32,7 @@ if err != nil {
     return err
 }
 
-kit := agentkit.New(client,
+kit := tokipe.New(client,
     config.WithHistoryBudget(budget.DefaultPolicy(), counter),
     config.WithCacheAlignment(),
 )

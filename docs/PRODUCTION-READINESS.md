@@ -15,9 +15,9 @@ reproduced.
 | # | Finding | Status |
 |---|---|---|
 | B1 | QA-approved work uncommitted | **Fixed** — committed |
-| B2 | `v1.0.0` predates every QA fix | **Held** — waiting on D1; tagging before that decision would only have to be undone |
+| B2 | `v1.0.0` predates every QA fix | **Open** — the one remaining step; D1 is settled, so the tag can now be placed |
 | B3 | Two nested modules require an unresolvable version | **Fixed** — both now require `v1.0.0`; end-to-end proof needs the push |
-| D1 | `agentkit` vs `tokipe` naming | **Open — decision required** |
+| D1 | `agentkit` vs `tokipe` naming | **Resolved** — renamed to `tokipe` throughout |
 | D2 | Benchmark label carries the full module path | **Fixed** |
 
 B3 is fixed as far as it can be verified locally. The three nested modules still
@@ -158,48 +158,60 @@ exist, and tag the submodules.
 
 ---
 
-## 4. Decision required before tagging
+## 4. Decisions taken before tagging
 
-### D1 — Module, package and metric names disagree
+### D1 — Module, package and metric names disagreed — **resolved: renamed**
 
-```
-module   github.com/JMjirapat/tokipe
-package  agentkit                     → callers write agentkit.New()
-metrics  "agentkit.stage_latency_ms"
-env      AGENTKIT_CLI_LIVE
-README   "# agentkit"
-```
+As reviewed, the identity was split three ways:
 
-This is legal Go and it works. It is also confusing: a user runs
-`go get github.com/JMjirapat/tokipe` and then types `agentkit.New`.
+| | As reviewed | Now |
+|---|---|---|
+| Module | `github.com/JMjirapat/tokipe` | unchanged |
+| Package | `agentkit` — callers wrote `agentkit.New()` | `tokipe` |
+| Metrics | `agentkit.stage_latency_ms` | `tokipe.stage_latency_ms` |
+| Env | `AGENTKIT_CLI_LIVE`, `AGENTKIT_PGVECTOR_DSN` | `TOKIPE_*` |
+| README | `# agentkit` | `# tokipe` |
 
-The reason it belongs in a release review rather than a backlog is that **v1.0
-freezes it**. The package name is part of every importer's source. The metric
-names are part of every dashboard and alert rule built on top of the library.
-Changing either after publication is a breaking change for both.
+The split was legal Go and it worked. It was also confusing: a user ran
+`go get github.com/JMjirapat/tokipe` and then typed `agentkit.New`.
 
-**If the rename to `tokipe` is wanted, it must happen before the tag.**
-Otherwise `agentkit.New()` is the API for the life of v1.
+The reason it belonged in a release review rather than a backlog is that **v1.0
+would have frozen it**. A package name is part of every importer's source; the
+metric names are part of every dashboard and alert rule built on the library.
+Changing either after publication breaks both. Before the tag it costs a
+mechanical rename; after it, a major version.
 
-### D2 — Collateral from the module rename
+Renaming was chosen and applied across all Go sources and every forward-looking
+document. Two categories were deliberately left alone:
 
-`benchmarks/main.go:73` passes the full module path where a short label belongs:
+- **`v1.0.0-agentkit-path`** is a real tag. A first pass renamed it in prose,
+  which would have pointed readers at a tag that does not exist.
+- **`docs/spec.md`, `docs/DELIVERY-1.md`, `docs/QA-REPORT.md`,
+  `docs/QA-REPORT-2.md`** are dated records of work reviewed under the old name.
+  Rewriting them would claim a review happened against an artifact that did not
+  yet exist.
+
+### D2 — Collateral from the module rename — **resolved**
+
+`benchmarks/main.go:73` passed the full module path where a short arm label
+belongs, so the benchmark printed:
 
 ```
 github.com/JMjirapat/tokipe  billed=  2148
 ```
 
-This is the **only** place the rename damaged a string literal — every metric
-name survived intact, which was checked explicitly across the whole tree.
+That was the **only** string literal the earlier module-path rename damaged —
+every metric name survived it intact, which was checked explicitly across the
+whole tree before concluding so.
 
 ---
 
 ## 5. Recommended sequence
 
-1. Commit the QA round 2–4 work.
-2. Decide `agentkit` versus `tokipe` — **this is the last moment it is free**.
-3. Fix the nested modules' `require` versions.
-4. Fix the benchmark label.
+1. ~~Commit the QA round 2–4 work.~~ **done**
+2. ~~Decide `agentkit` versus `tokipe`.~~ **done — renamed**
+3. ~~Fix the nested modules' `require` versions.~~ **done**
+4. ~~Fix the benchmark label.~~ **done**
 5. Delete the local `v1.0.0`; re-tag the final commit; tag the three submodules.
 6. Push, then verify `go get` end to end from a scratch module.
 

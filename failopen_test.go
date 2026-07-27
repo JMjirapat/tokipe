@@ -1,4 +1,4 @@
-package agentkit_test
+package tokipe_test
 
 import (
 	"context"
@@ -35,7 +35,7 @@ func TestPanickingToolExecutorStillReachesTheModel(t *testing.T) {
 	model := mock.New("m", "answer")
 	rec := metrics.NewInMemory()
 
-	kit := agentkit.New(model,
+	kit := tokipe.New(model,
 		config.WithMetrics(rec),
 		config.WithToolCache(toolcache.NewMemoryCache(),
 			func(context.Context, pipeline.ToolCall) (any, error) { panic("executor panic") },
@@ -84,7 +84,7 @@ func TestPanickingPreprocessRuleStillReachesTheModel(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			model := mock.New("m", "answer")
-			kit := agentkit.New(model, config.WithPreprocess(rule))
+			kit := tokipe.New(model, config.WithPreprocess(rule))
 
 			resp, err := kit.Run(context.Background(), &pipeline.Request{Query: "q"})
 			if err != nil {
@@ -115,7 +115,7 @@ func TestPanickingCompressorLeavesChunkIntact(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			model := mock.New("m", "answer")
-			kit := agentkit.New(model, config.WithCompression(c))
+			kit := tokipe.New(model, config.WithCompression(c))
 
 			req := &pipeline.Request{
 				Query:           "q",
@@ -159,7 +159,7 @@ func TestPanickingRetrievalFallsOpen(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			model := mock.New("m", "answer")
-			kit := agentkit.New(model, config.WithRAG(tc.embedder, tc.store, 3))
+			kit := tokipe.New(model, config.WithRAG(tc.embedder, tc.store, 3))
 
 			req := &pipeline.Request{Query: "q", NeedsRetrieval: true}
 			if _, err := kit.Run(context.Background(), req); err != nil {
@@ -188,7 +188,7 @@ func (panicCache) Set(context.Context, string, map[string]any, any, time.Duratio
 
 func TestPanickingCacheBackendStillReachesTheModel(t *testing.T) {
 	model := mock.New("m", "answer")
-	kit := agentkit.New(model,
+	kit := tokipe.New(model,
 		config.WithToolCache(panicCache{},
 			func(context.Context, pipeline.ToolCall) (any, error) { return "v", nil }, 0),
 	)
@@ -207,7 +207,7 @@ func TestPanickingCacheBackendStillReachesTheModel(t *testing.T) {
 // The whole point of fail-open: everything broken at once, turn still answered.
 func TestEverythingPanicsAndTheTurnStillCompletes(t *testing.T) {
 	model := mock.New("m", "answer")
-	kit := agentkit.New(model,
+	kit := tokipe.New(model,
 		config.WithPreprocess(panicRule{}),
 		config.WithToolCache(panicCache{},
 			func(context.Context, pipeline.ToolCall) (any, error) { panic("exec") }, 0),
@@ -245,7 +245,7 @@ func (panicNameRule) Name() string { panic("rule name panic") }
 
 func TestPanickingRuleNameStillShortCircuits(t *testing.T) {
 	model := mock.New("m", "from-model")
-	kit := agentkit.New(model, config.WithPreprocess(panicNameRule{}))
+	kit := tokipe.New(model, config.WithPreprocess(panicNameRule{}))
 
 	resp, err := kit.Run(context.Background(), &pipeline.Request{Query: "q"})
 	if err != nil {
@@ -269,7 +269,7 @@ func (panicNameClient) Send(context.Context, *pipeline.Request) (*pipeline.Respo
 }
 
 func TestPanickingClientNameStillRoutes(t *testing.T) {
-	kit := agentkit.New(mock.New("fallback", "no"),
+	kit := tokipe.New(mock.New("fallback", "no"),
 		config.WithRouter(router.NewHeuristicRouter(
 			router.Tier{Client: panicNameClient{}, MaxComplexity: 1.0})))
 

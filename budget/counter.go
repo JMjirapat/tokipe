@@ -18,7 +18,7 @@ import (
 // Implementations must be safe for concurrent use.
 type TokenCounter interface {
 	// CountTokens returns the token count of text. An error means "unknown",
-	// and every caller in agentkit treats that as a reason to skip the
+	// and every caller in tokipe treats that as a reason to skip the
 	// optimization rather than to fail the turn.
 	CountTokens(ctx context.Context, text string) (int, error)
 }

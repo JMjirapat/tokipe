@@ -47,7 +47,7 @@ func (t *timedStage) Name() string {
 func (t *timedStage) Process(ctx context.Context, req *pipeline.Request) (*pipeline.Request, error) {
 	start := time.Now()
 	// No recover here on purpose: a caller-supplied Stage's panic propagates by
-	// design (see agentkit package docs), and instrumentation must not quietly
+	// design (see tokipe package docs), and instrumentation must not quietly
 	// change that contract. The deferred observation still records the time
 	// spent before the panic, which is exactly what an operator wants.
 	defer func() {

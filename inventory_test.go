@@ -1,4 +1,4 @@
-package agentkit_test
+package tokipe_test
 
 import (
 	"os"

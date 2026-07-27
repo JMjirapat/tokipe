@@ -1,4 +1,4 @@
-// Package stores defines the retrieval interfaces agentkit depends on.
+// Package stores defines the retrieval interfaces tokipe depends on.
 // Concrete adapters (pgvector, mock) live in subdirectories; this file has
 // zero third-party dependencies.
 package stores

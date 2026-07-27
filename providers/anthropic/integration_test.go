@@ -37,7 +37,7 @@ func TestPromptCachingAcrossTurns(t *testing.T) {
 
 	// The prefix must exceed the provider's minimum cacheable length, which is
 	// well above a handful of words — hence the padding.
-	prefix := "You are a test fixture for agentkit's prompt-caching integration test.\n" +
+	prefix := "You are a test fixture for tokipe's prompt-caching integration test.\n" +
 		strings.Repeat("Answer concisely and never invent facts. Cite nothing. Stay terse.\n", 120)
 
 	newRequest := func(q string) *pipeline.Request {

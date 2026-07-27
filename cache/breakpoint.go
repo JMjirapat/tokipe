@@ -53,7 +53,7 @@ func (s segments) dynamicBoundary() int { return s.staticLen + s.historyLen }
 
 // isStatic reports whether a message belongs in the cacheable static prefix.
 // Caller-marked Static messages qualify; so do system-role messages, which are
-// static by construction in every provider API agentkit targets.
+// static by construction in every provider API tokipe targets.
 func isStatic(m pipeline.Message) bool { return m.Static || m.Role == "system" }
 
 // partition performs the reordering mandated by docs/spec.md §2.4.6:

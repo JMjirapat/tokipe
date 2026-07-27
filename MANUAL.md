@@ -1,12 +1,12 @@
-# agentkit User Manual
+# tokipe User Manual
 
 This manual explains how to integrate, configure, operate, and extend
-`agentkit`. It describes the frozen v1 core plus the additive Delivery 2
+`tokipe`. It describes the frozen v1 core plus the additive Delivery 2
 capabilities in the current source tree.
 
-## 1. When to use agentkit
+## 1. When to use tokipe
 
-Use agentkit when an application sends repeated or growing context to an LLM
+Use tokipe when an application sends repeated or growing context to an LLM
 and you want to reduce cost or latency without coupling business logic to one
 provider.
 
@@ -35,7 +35,7 @@ to expose.
 ### Current local-module setup
 
 The module path is `github.com/JMjirapat/tokipe`; the root package name remains
-`agentkit`. The repository is not published yet, so a separate application must
+`tokipe`. The repository is not published yet, so a separate application must
 use a local replacement until the module is pushed.
 
 For a separate application located next to this checkout:
@@ -150,7 +150,7 @@ CLI usage describes the CLI's own prompt scaffold when the CLI exposes it.
 ### Pass-through baseline
 
 ```go
-kit := agentkit.New(client)
+kit := tokipe.New(client)
 resp, err := kit.Run(ctx, &pipeline.Request{Query: "Hello"})
 ```
 
@@ -162,7 +162,7 @@ optimizations so improvements can be measured rather than assumed.
 ```go
 rec := metrics.NewInMemory()
 
-kit := agentkit.New(strongClient,
+kit := tokipe.New(strongClient,
 	config.WithMetrics(rec),
 	config.WithPreprocess(rules...),
 	config.WithToolCache(
@@ -186,11 +186,11 @@ kit := agentkit.New(strongClient,
 )
 ```
 
-`agentkit.NewFromConfig` is available when configuration is resolved earlier:
+`tokipe.NewFromConfig` is available when configuration is resolved earlier:
 
 ```go
 cfg := config.New(options...)
-kit := agentkit.NewFromConfig(defaultClient, cfg)
+kit := tokipe.NewFromConfig(defaultClient, cfg)
 ```
 
 ## 6. Model providers
@@ -348,7 +348,7 @@ rule := preprocess.RuleFunc{
 	},
 }
 
-kit := agentkit.New(client, config.WithPreprocess(rule))
+kit := tokipe.New(client, config.WithPreprocess(rule))
 ```
 
 A rule error, nil result, or panic is treated as “not handled”; later rules and
@@ -360,7 +360,7 @@ Use `preprocess.Registry` when rules are assembled from multiple packages:
 ```go
 registry := preprocess.NewRegistry(defaultRules...)
 registry.Register(applicationRules...)
-kit := agentkit.New(client, config.WithPreprocess(registry.Rules()...))
+kit := tokipe.New(client, config.WithPreprocess(registry.Rules()...))
 ```
 
 Registering the same name replaces the earlier rule without changing its
@@ -368,7 +368,7 @@ position.
 
 ## 8. Tool-result caching
 
-agentkit never decides which tools to call. It receives `Request.ToolCalls`,
+tokipe never decides which tools to call. It receives `Request.ToolCalls`,
 looks up deterministic `(name, args)` keys, and invokes your executor for
 misses.
 
@@ -385,7 +385,7 @@ execute := func(
 	}
 }
 
-kit := agentkit.New(client,
+kit := tokipe.New(client,
 	config.WithToolCache(
 		toolcache.NewMemoryCache(),
 		execute,
@@ -414,10 +414,10 @@ The Redis adapter is a nested module:
 rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
 cacheStore, err := agentredis.New(
 	rdb,
-	agentredis.WithPrefix("myapp:agentkit:"),
+	agentredis.WithPrefix("myapp:tokipe:"),
 )
 
-kit := agentkit.New(client,
+kit := tokipe.New(client,
 	config.WithToolCache(cacheStore, execute, 15*time.Minute),
 )
 ```
@@ -441,7 +441,7 @@ type VectorStore interface {
 Enable RAG:
 
 ```go
-kit := agentkit.New(client, config.WithRAG(embedder, store, 5))
+kit := tokipe.New(client, config.WithRAG(embedder, store, 5))
 
 resp, err := kit.Run(ctx, &pipeline.Request{
 	Query:          "What is the retry policy?",
@@ -586,7 +586,7 @@ r := router.NewHeuristicRouter(
 	router.Tier{Client: frontier, MaxComplexity: 1.00},
 )
 
-kit := agentkit.New(frontier, config.WithRouter(r))
+kit := tokipe.New(frontier, config.WithRouter(r))
 ```
 
 Tiers are defensively sorted. The default client is used if no router is
@@ -625,7 +625,7 @@ alone.
 compression and before cache alignment:
 
 ```go
-kit := agentkit.New(client,
+kit := tokipe.New(client,
 	config.WithHistoryBudget(
 		budget.DefaultPolicy(),
 		nil, // nil = budget.CharEstimator
@@ -725,7 +725,7 @@ All metrics are optional:
 
 ```go
 rec := metrics.NewInMemory()
-kit := agentkit.New(client, config.WithMetrics(rec))
+kit := tokipe.New(client, config.WithMetrics(rec))
 
 snapshot := rec.Snapshot()
 ```
@@ -735,7 +735,7 @@ records histograms, gauges, and degradation events:
 
 ```go
 rec := metrics.NewObservability()
-kit := agentkit.New(client, config.WithMetrics(rec))
+kit := tokipe.New(client, config.WithMetrics(rec))
 
 degradations := rec.Degradations()
 latencyByStage := rec.SummaryBy(metrics.StageLatency, "stage")
@@ -780,7 +780,7 @@ For OpenTelemetry, use the separate `metrics/otel` module:
 ```go
 rec := otel.New(meterProvider.Meter("myservice"),
 	otel.WithDegradationHandler(func(d metrics.Degradation) {
-		slog.Warn("agentkit degraded",
+		slog.Warn("tokipe degraded",
 			"stage", d.Stage, "reason", d.Reason, "err", d.Err)
 	}),
 )
@@ -1018,9 +1018,9 @@ CGO_ENABLED=0 go build ./...
 Credential-gated checks:
 
 ```bash
-AGENTKIT_CLI_LIVE=1 go test -run TestLiveCLIs -v ./providers/cli/
+TOKIPE_CLI_LIVE=1 go test -run TestLiveCLIs -v ./providers/cli/
 (cd stores/pgvector && \
-  AGENTKIT_PGVECTOR_DSN='postgres://…' go test -run Integration -v ./...)
+  TOKIPE_PGVECTOR_DSN='postgres://…' go test -run Integration -v ./...)
 ```
 
 See [README.md](README.md) for the short path and

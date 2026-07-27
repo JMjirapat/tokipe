@@ -15,10 +15,10 @@ import (
 	"github.com/JMjirapat/tokipe/providers/cli"
 )
 
-// TestLiveCLIs drives the real binaries. Skipped unless AGENTKIT_CLI_LIVE=1,
+// TestLiveCLIs drives the real binaries. Skipped unless TOKIPE_CLI_LIVE=1,
 // because each subtest spends subscription quota and takes seconds.
 //
-//	AGENTKIT_CLI_LIVE=1 go test -run TestLiveCLIs -v ./providers/cli/
+//	TOKIPE_CLI_LIVE=1 go test -run TestLiveCLIs -v ./providers/cli/
 //
 // Unlike the Anthropic API integration test, this needs no API key — each CLI
 // is already authenticated by whatever plan it is logged into. That is the
@@ -27,8 +27,8 @@ import (
 // Verified 2026-07-26 against claude 2.1.217, codex-cli 0.144.4,
 // opencode 1.17.20.
 func TestLiveCLIs(t *testing.T) {
-	if os.Getenv("AGENTKIT_CLI_LIVE") != "1" {
-		t.Skip("set AGENTKIT_CLI_LIVE=1 to run against the real CLIs")
+	if os.Getenv("TOKIPE_CLI_LIVE") != "1" {
+		t.Skip("set TOKIPE_CLI_LIVE=1 to run against the real CLIs")
 	}
 
 	cases := []struct {
@@ -71,7 +71,7 @@ func TestLiveCLIs(t *testing.T) {
 				t.Fatalf("New: %v", err)
 			}
 
-			kit := agentkit.New(client, config.WithCacheAlignment())
+			kit := tokipe.New(client, config.WithCacheAlignment())
 			resp, err := kit.Run(context.Background(), &pipeline.Request{
 				Query: "Reply with exactly one word: pong",
 				Messages: []pipeline.Message{
@@ -104,9 +104,9 @@ func TestLiveCLIs(t *testing.T) {
 }
 
 // TestLiveCLIStreaming drives the real binaries through SendStream. Skipped
-// unless AGENTKIT_CLI_LIVE=1; each subtest spends subscription quota.
+// unless TOKIPE_CLI_LIVE=1; each subtest spends subscription quota.
 //
-//	AGENTKIT_CLI_LIVE=1 go test -run TestLiveCLIStreaming -v ./providers/cli/
+//	TOKIPE_CLI_LIVE=1 go test -run TestLiveCLIStreaming -v ./providers/cli/
 //
 // Verified 2026-07-26 against claude 2.1.217, codex-cli 0.144.4,
 // opencode 1.17.20.
@@ -118,8 +118,8 @@ func TestLiveCLIs(t *testing.T) {
 // in the CLIs' output, and callers sizing a UI around per-token updates need
 // the API backend instead.
 func TestLiveCLIStreaming(t *testing.T) {
-	if os.Getenv("AGENTKIT_CLI_LIVE") != "1" {
-		t.Skip("set AGENTKIT_CLI_LIVE=1 to stream from the real CLIs")
+	if os.Getenv("TOKIPE_CLI_LIVE") != "1" {
+		t.Skip("set TOKIPE_CLI_LIVE=1 to stream from the real CLIs")
 	}
 
 	cases := []struct {

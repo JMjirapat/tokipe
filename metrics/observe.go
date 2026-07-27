@@ -66,16 +66,16 @@ func Set(r Recorder, name string, value float64, labels map[string]string) {
 	}
 }
 
-// Metric names emitted by agentkit itself. Callers are free to add their own;
+// Metric names emitted by tokipe itself. Callers are free to add their own;
 // these are the ones the library guarantees.
 const (
 	// StageLatency is the wall time one stage's Process took, labelled by
 	// stage. Includes the time a stage spent in a caller's own code.
-	StageLatency = "agentkit.stage_latency_ms"
+	StageLatency = "tokipe.stage_latency_ms"
 
 	// StageDegraded counts fail-open events, labelled by stage and reason.
 	// This is the counter that makes silent degradation visible.
-	StageDegraded = "agentkit.stage_degraded"
+	StageDegraded = "tokipe.stage_degraded"
 )
 
 // safeHistogram and safeGauge contain a panic from a caller-supplied recorder,

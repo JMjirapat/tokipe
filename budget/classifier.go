@@ -10,7 +10,7 @@ import (
 //
 // It is a *helper*, not a stage: docs/spec.md §2.4.8 makes classification the
 // caller's responsibility (set Request.TurnType before Pipeline.Run). Nothing
-// in agentkit calls this for you. Use it when you have no better signal and
+// in tokipe calls this for you. Use it when you have no better signal and
 // accept a heuristic; ignore it when your orchestrator already knows what kind
 // of turn it is issuing.
 //

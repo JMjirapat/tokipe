@@ -128,7 +128,7 @@ The static prefix is byte-identical across all 100 turns
   benchmark measured the untrimmed request while billing the trimmed one.
   Safety comes from building new slices, not from copying the Request.
 - **Fixing the benchmark exposed a near-miss of my own.** Rewriting the arm's
-  loop briefly stopped recording the user query in the agentkit arm while the
+  loop briefly stopped recording the user query in the tokipe arm while the
   baseline still did, inflating the headline from 57.1% to 67.4% for no real
   reason. Both arms must record identical content or the comparison is
   worthless — the exact failure QA had flagged as worth scrutinising.
@@ -200,10 +200,10 @@ degradation log would have told you.
   unbounded, and that is how a backend gets a cardinality explosion. It reaches
   the handler, where a logger can take it. Asserted in the OTel adapter's tests.
 - **A metric nothing can display is not shipped.** Per-stage latency needed the
-  in-memory recorder to index observations by label; without that, agentkit
+  in-memory recorder to index observations by label; without that, tokipe
   emitted the metric and no in-tree recorder could show the breakdown the DoD
   asked for.
-- Instruments are memoised in the OTel adapter: agentkit asks for the same
+- Instruments are memoised in the OTel adapter: tokipe asks for the same
   handful of names on every turn, and OTel instrument creation is not free.
 
 ## Phase 8 — The deferred v1 items ✅ shipped

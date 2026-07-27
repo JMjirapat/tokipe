@@ -36,7 +36,7 @@ type claudeResult struct {
 //
 // The reported Usage is genuine, but it measures Claude Code's own prompt —
 // its system prompt and tool definitions dominate the token count. Do not read
-// agentkit's cache-alignment effectiveness from these numbers.
+// tokipe's cache-alignment effectiveness from these numbers.
 func ClaudeJSONParser(stdout []byte) (*pipeline.Response, error) {
 	var r claudeResult
 	if err := json.Unmarshal(bytes.TrimSpace(stdout), &r); err != nil {
