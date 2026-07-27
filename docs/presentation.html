@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="tokipe — what the system does and how to use it, as a slide deck with runnable examples.">
+<title>tokipe · System &amp; Usage</title>
+<style>
+  :root{
+    color-scheme: light;
+    --ink:#17231f; --muted:#5f6f68; --paper:#f3f1e8; --surface:#fffef9;
+    --line:#d9dbd0; --green:#155e4b; --green-2:#0d8a69; --mint:#d9eee5;
+    --amber:#d77c2f; --amber-soft:#f7e5d1; --red:#a8332b; --red-soft:#f6dedb;
+    --blue:#346a85; --blue-soft:#dfeef3; --ink-dark:#1d2b26;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; color:var(--ink);
+    background:
+      radial-gradient(circle at 8% 4%, rgba(21,94,75,.12), transparent 28rem),
+      radial-gradient(circle at 92% 18%, rgba(215,124,47,.13), transparent 26rem),
+      var(--paper);
+    font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    line-height:1.5; overflow:hidden;
+  }
+
+  /* ---------- deck chrome ---------- */
+  .deck{position:relative;height:100vh;width:100vw}
+  .slide{
+    position:absolute; inset:0; display:none;
+    padding:clamp(28px,5vh,64px) clamp(24px,6vw,88px) 76px;
+    overflow-y:auto;
+    animation:fade .28s ease;
+  }
+  /* align-items:stretch is the flex default and would blow the eyebrow pill and
+     every card out to full width; the deck lays out in normal block flow. */
+  .slide.on{display:flex; flex-direction:column; justify-content:center; align-items:stretch}
+  .slide.on > *{width:100%}
+  @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+  .bar{position:fixed;left:0;top:0;height:3px;background:var(--green-2);z-index:30;transition:width .25s ease}
+  .hud{
+    position:fixed; right:clamp(16px,4vw,40px); bottom:18px; z-index:30;
+    display:flex; align-items:center; gap:12px;
+    font-size:.82rem; color:var(--muted);
+  }
+  .hud button{
+    font:inherit; cursor:pointer; border:1px solid var(--line); background:var(--surface);
+    color:var(--ink); width:32px; height:32px; border-radius:9px; line-height:1;
+  }
+  .hud button:hover{border-color:var(--green-2); color:var(--green)}
+  .hud .count{font-variant-numeric:tabular-nums; min-width:56px; text-align:right}
+  .hint{
+    position:fixed; left:clamp(16px,4vw,40px); bottom:22px; z-index:30;
+    font-size:.78rem; color:var(--muted);
+  }
+  kbd{
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.9em;
+    border:1px solid var(--line); border-bottom-width:2px; border-radius:5px;
+    padding:1px 5px; background:var(--surface);
+  }
+
+  /* ---------- typography ---------- */
+  .eyebrow{
+    display:inline-block; align-self:flex-start; width:auto !important; padding:4px 12px; border:1px solid var(--line); border-radius:999px;
+    background:rgba(255,255,255,.7); font-size:.72rem; font-weight:660;
+    letter-spacing:.09em; text-transform:uppercase; color:var(--muted); margin-bottom:16px;
+  }
+  h1{font-size:clamp(2.2rem,6vw,4.2rem); line-height:1.03; letter-spacing:-.035em; font-weight:800; margin:0 0 16px}
+  h2{font-size:clamp(1.5rem,3.4vw,2.4rem); line-height:1.12; letter-spacing:-.028em; font-weight:790; margin:0 0 8px}
+  h3{font-size:1.02rem; letter-spacing:-.01em; margin:22px 0 8px; color:var(--green)}
+  p{margin:0 0 14px; max-width:68ch; font-size:clamp(.96rem,1.5vw,1.08rem)}
+  .lede{font-size:clamp(1.05rem,2vw,1.35rem); color:var(--muted); max-width:52ch}
+  .dim{color:var(--muted)}
+  strong{font-weight:720}
+
+  ul{margin:0 0 14px; padding-left:22px; max-width:68ch}
+  li{margin-bottom:9px; font-size:clamp(.94rem,1.5vw,1.05rem)}
+
+  code{
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.88em;
+    background:rgba(21,94,75,.09); padding:1px 5px; border-radius:5px;
+  }
+  pre{
+    margin:0 0 14px; padding:15px 17px; border-radius:13px; overflow:auto;
+    background:var(--ink-dark); color:#dfe9e4; font-size:clamp(.72rem,1.15vw,.87rem);
+    line-height:1.55; border:1px solid rgba(0,0,0,.2);
+  }
+  pre code{background:none;padding:0;color:inherit;font-size:1em}
+  .k{color:#8fd3b6}      /* keyword-ish */
+  .s{color:#ffc98b}      /* string / highlight */
+  .c{color:#7d918a}      /* comment */
+  .o{color:#9fc6dc}      /* output value */
+
+  /* ---------- layout helpers ---------- */
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:clamp(16px,3vw,34px);align-items:start}
+  .two.tight{gap:20px}
+  @media (max-width:860px){ .two{grid-template-columns:1fr} }
+
+  .card{border:1px solid var(--line);border-radius:16px;background:var(--surface);padding:18px 20px}
+  .card h4{margin:0 0 6px;font-size:1rem}
+  .card p{margin:0;font-size:.92rem;color:var(--muted)}
+
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:.76rem;font-weight:660}
+  .pill.ok{background:var(--mint);color:var(--green)}
+  .pill.no{background:var(--red-soft);color:var(--red)}
+  .pill.warn{background:var(--amber-soft);color:var(--amber)}
+
+  table{border-collapse:collapse;width:100%;font-size:clamp(.85rem,1.3vw,.98rem)}
+  th,td{text-align:left;padding:9px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  thead th{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  tbody tr:last-child td{border-bottom:0}
+  td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .tw{border:1px solid var(--line);border-radius:14px;background:var(--surface);overflow:auto}
+
+  .note{border-left:4px solid var(--amber);background:var(--amber-soft);padding:12px 16px;border-radius:0 11px 11px 0;max-width:68ch}
+  .note p{margin:0;font-size:.95rem}
+  .good{border-left-color:var(--green-2);background:var(--mint)}
+
+  /* pipeline diagram */
+  .flow{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin:6px 0 18px}
+  .flow span{
+    padding:6px 12px;border-radius:9px;border:1px solid var(--line);
+    background:var(--surface);font-size:.86rem;white-space:nowrap
+  }
+  .flow span.hi{background:var(--mint);border-color:var(--green-2);color:var(--green);font-weight:680}
+  .flow i{color:var(--muted);font-style:normal}
+
+  .big{font-size:clamp(2.6rem,7vw,4.6rem);font-weight:800;letter-spacing:-.04em;line-height:1;color:var(--green)}
+  .bigsub{color:var(--muted);font-size:.95rem;margin-top:4px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:18px;margin:8px 0 18px}
+</style>
+</head>
+<body>
+
+<div class="bar" id="bar"></div>
+<div class="deck" id="deck">
+
+<!-- 1 -->
+<section class="slide on">
+  <span class="eyebrow">Go library · v1.0.0</span>
+  <h1>tokipe</h1>
+  <p class="lede">Cut the input-token cost of an LLM application without
+  risking a single turn.</p>
+  <p class="dim" style="margin-top:22px"><code>go get github.com/JMjirapat/tokipe</code></p>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <span class="eyebrow">The problem</span>
+  <h2>Every turn re-sends the whole conversation</h2>
+  <p>An agent on turn 40 pays for turns 1–39 again. Retrieval pastes the same
+  passage twice. A tool that was already called gets called again, and its
+  output is billed again.</p>
+  <div class="stats">
+    <div><div class="big">5005</div><div class="bigsub">billed input tokens, 12 turns, no optimization</div></div>
+    <div><div class="big">195691</div><div class="bigsub">the same workload stretched to 100 turns</div></div>
+  </div>
+  <p class="dim">None of that is the model being expensive. It is the same bytes,
+  paid for repeatedly.</p>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <span class="eyebrow">What it is</span>
+  <h2>An ordered pipeline that runs before the model call</h2>
+  <div class="flow">
+    <span>request</span><i>→</i>
+    <span>preprocess</span><i>→</i>
+    <span>tool cache</span><i>→</i>
+    <span>RAG</span><i>→</i>
+    <span>dedupe</span><i>→</i>
+    <span>compress</span><i>→</i>
+    <span>history budget</span><i>→</i>
+    <span>cache align</span><i>→</i>
+    <span>routing</span><i>→</i>
+    <span>send</span>
+  </div>
+  <p>A library, not a service. No global state, no daemon, no proxy in front of
+  your traffic. You call <code>kit.Run(ctx, req)</code> and get a response.</p>
+  <div class="note good"><p><strong>The core module imports only the Go standard
+  library.</strong> Enforced by CI on every push, not by convention.</p></div>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <span class="eyebrow">Three rules</span>
+  <h2>What you can rely on</h2>
+  <div class="two tight">
+    <div class="card">
+      <h4>1 · Everything is opt-in</h4>
+      <p>Enable nothing and you get a pass-through. Add one stage at a time and
+      measure each.</p>
+    </div>
+    <div class="card">
+      <h4>2 · Fail-open is absolute</h4>
+      <p>No optimization may cost you a turn. Any stage that errors or panics is
+      contained; the pipeline continues with the unoptimized request.</p>
+    </div>
+    <div class="card">
+      <h4>3 · Order is fixed</h4>
+      <p>Stages run in a defined sequence, because cache alignment only works if
+      it runs after everything that rewrites content.</p>
+    </div>
+    <div class="card">
+      <h4>Proof, not a promise</h4>
+      <p><code>examples/observability -break</code> breaks every dependency at
+      once: <strong>40/40 turns still succeed</strong>, 80 degradations logged.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <span class="eyebrow">Install</span>
+  <h2>Core, plus only the backends you use</h2>
+<pre><code><span class="c"># the library — stdlib only, no transitive dependencies</span>
+go get github.com/JMjirapat/tokipe
+
+<span class="c"># optional, each a separate module with its own deps</span>
+go get github.com/JMjirapat/tokipe/stores/pgvector   <span class="c">// retrieval</span>
+go get github.com/JMjirapat/tokipe/toolcache/redis   <span class="c">// shared tool cache</span>
+go get github.com/JMjirapat/tokipe/metrics/otel      <span class="c">// OpenTelemetry</span></code></pre>
+  <p class="dim">Go 1.23+. Builds with <code>CGO_ENABLED=0</code> on Linux, macOS
+  and Windows.</p>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <span class="eyebrow">Example · 60 seconds</span>
+  <h2>The smallest thing that works</h2>
+  <div class="two">
+    <div>
+<pre><code><span class="k">import</span> (
+    <span class="s">"github.com/JMjirapat/tokipe"</span>
+    <span class="s">"github.com/JMjirapat/tokipe/pipeline"</span>
+    <span class="s">"github.com/JMjirapat/tokipe/providers/mock"</span>
+)
+
+kit := tokipe.New(mock.New(<span class="s">"demo-model"</span>, <span class="s">"42"</span>))
+
+resp, err := kit.Run(ctx, &amp;pipeline.Request{
+    Query: <span class="s">"What is six times seven?"</span>,
+})</code></pre>
+    </div>
+    <div>
+<pre><code>content        = <span class="o">"42"</span>
+model          = <span class="o">demo-model</span>
+shortCircuited = <span class="o">false</span></code></pre>
+      <p class="dim">The mock provider ships with the library, so this runs with
+      no key and no network. Nothing is enabled yet — this is the pass-through
+      baseline you measure everything else against.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <span class="eyebrow">Stage 1 · Preprocess</span>
+  <h2>Answer it yourself; never call the model</h2>
+  <p>Some questions you already know the answer to. A <code>Rule</code> catches
+  those before anything else runs.</p>
+  <div class="two">
+    <div>
+<pre><code>config.WithPreprocess(
+    preprocess.RuleFunc{
+        RuleName: <span class="s">"help"</span>,
+        Match: <span class="k">func</span>(r *pipeline.Request) <span class="k">bool</span> {
+            <span class="k">return</span> r.Query == <span class="s">"/help"</span>
+        },
+        Fn: <span class="k">func</span>(r *pipeline.Request) (*pipeline.Response, <span class="k">error</span>) {
+            <span class="k">return</span> &amp;pipeline.Response{Content: menu}, <span class="k">nil</span>
+        },
+    },
+)</code></pre>
+    </div>
+    <div>
+<pre><code><span class="s">"ping"</span>            → <span class="o">"pong"</span>   shortCircuited=<span class="o">true</span>
+<span class="s">"explain quantum"</span> → <span class="o">"…LLM…"</span>  shortCircuited=<span class="o">false</span></code></pre>
+      <div class="note"><p><strong>The only stage that saves 100%.</strong>
+      Everything else makes the request smaller. This one removes it. In the
+      benchmark, 3 of 12 turns never reach the model.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <span class="eyebrow">Stage 1 · Preprocess</span>
+  <h2>Two gates, on purpose</h2>
+  <div class="two">
+    <div>
+      <h3>CanHandle — cheap and rough</h3>
+      <p>Runs on <em>every</em> request. Keep it to a glance. The shipped JSON
+      rule looks at one character:</p>
+<pre><code><span class="k">switch</span> p[0] {
+<span class="k">case</span> <span class="s">'{'</span>, <span class="s">'['</span>, <span class="s">'"'</span>, <span class="s">'t'</span>, <span class="s">'f'</span>, <span class="s">'n'</span>, <span class="s">'-'</span>:
+    <span class="k">return</span> <span class="k">true</span>
+}</code></pre>
+    </div>
+    <div>
+      <h3>Handle — expensive and exact</h3>
+      <p>Runs only for requests that passed the gate. Here it is a real parse:</p>
+<pre><code>json.Unmarshal([]<span class="k">byte</span>(p), &amp;out)</code></pre>
+      <p>Returning <code>nil</code> means <em>“I could not handle it after
+      all”</em> — the pipeline moves on to the next rule, or to the model. That
+      escape hatch is why the first gate is allowed to be sloppy.</p>
+    </div>
+  </div>
+  <div class="note"><p><strong>Be strict.</strong> A rule that claims a request
+  it should not have answers the user wrong, with no model to catch it. When in
+  doubt, return <code>false</code> — one model call is far cheaper than one wrong
+  answer.</p></div>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <span class="eyebrow">Stage 2 · Tool cache</span>
+  <h2>Identical arguments run once</h2>
+  <div class="two">
+    <div>
+<pre><code>config.WithToolCache(
+    toolcache.NewMemoryCache(),
+    exec,               <span class="c">// your tool executor</span>
+    time.Minute,        <span class="c">// TTL</span>
+)</code></pre>
+      <p class="dim">Swap <code>NewMemoryCache()</code> for the Redis module and
+      the cache is shared across processes.</p>
+    </div>
+    <div>
+<pre><code>turn 1 — executor invocations so far: <span class="o">1</span>
+turn 2 — executor invocations so far: <span class="o">1</span>
+turn 3 — executor invocations so far: <span class="o">1</span></code></pre>
+      <p>Three turns, one execution. The saving is double: the tool does not run,
+      <em>and</em> its output is not re-billed as input tokens.</p>
+      <p class="dim">Concurrent identical calls collapse into one execution
+      (singleflight), so a burst does not become a stampede.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 10 -->
+<section class="slide">
+  <span class="eyebrow">Stages 3–5 · Context</span>
+  <h2>Retrieve, then stop paying for it twice</h2>
+  <div class="two tight">
+    <div class="card">
+      <h4>RAG</h4>
+      <p>Embed the query, pull top-K evidence. This <em>adds</em> tokens — it
+      earns its place by letting you send five relevant passages instead of a
+      whole document.</p>
+    </div>
+    <div class="card">
+      <h4>Dedupe</h4>
+      <p>Retrieval routinely returns the same passage twice under two URLs. The
+      second copy tells the model nothing and costs full price.</p>
+    </div>
+    <div class="card">
+      <h4>Compress</h4>
+      <p>Lossless-ish trimming, plus an AST-aware compressor for Go source that
+      understands what is safe to drop.</p>
+    </div>
+    <div class="card">
+      <h4>History budget</h4>
+      <p>Trims the <em>middle</em> of the conversation — never the static prefix,
+      never the newest message.</p>
+    </div>
+  </div>
+  <div class="note"><p>Dedupe defaults to <strong>exact</strong> normalized
+  matching. Near-duplicate merging is opt-in, because “allow” and “deny” can
+  differ by one word in a long document.</p></div>
+</section>
+
+<!-- 11 -->
+<section class="slide">
+  <span class="eyebrow">Stage 6 · Cache alignment</span>
+  <h2>Mark what never changes</h2>
+  <div class="two">
+    <div>
+<pre><code>Messages: []pipeline.Message{
+    {Role: <span class="s">"system"</span>, Content: prompt, Static: <span class="k">true</span>},
+    {Role: <span class="s">"user"</span>,   Content: <span class="s">"first turn"</span>},
+    ...
+}
+
+config.WithCacheAlignment()</code></pre>
+<pre><code>breakpoints placed = <span class="o">1</span>
+  after message <span class="o">0</span> — reason <span class="o">"static_prefix"</span></code></pre>
+    </div>
+    <div>
+      <p>Providers cache the longest matching prefix of a request. tokipe places
+      the breakpoints, but you have to say which content is stable.</p>
+      <div class="note"><p><strong>A breakpoint may only sit after
+      <code>Static</code> content.</strong> That is the entire rule — and the
+      prefix must stay byte-identical. Change one space in the system prompt and
+      every cached turn is a miss.</p></div>
+      <p class="dim">Verified against a live Messages-API endpoint: turn 1 writes
+      the prefix to the cache, turn 2 reads it back.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 12 -->
+<section class="slide">
+  <span class="eyebrow">Stage 7 · Routing</span>
+  <h2>Send easy turns to the cheap model</h2>
+  <div class="two">
+    <div>
+<pre><code>config.WithRouter(router.NewHeuristicRouter(
+    router.Tier{Client: cheap,  MaxComplexity: 0.35},
+    router.Tier{Client: strong, MaxComplexity: 1.0},
+))</code></pre>
+<pre><code>2 chars      → <span class="o">cheap-model</span>
+5543 chars   → <span class="o">strong-model</span></code></pre>
+    </div>
+    <div>
+      <h3>Know the defaults before you tune</h3>
+<pre><code>weights            length 0.5, code 0.3, chunks 0.2
+length saturation  8000 chars</code></pre>
+      <div class="note"><p>A 500-character snippet full of code fences scores
+      about <strong>0.33</strong>: the code axis maxes out but contributes at most
+      0.3, and length barely moves. Put a tier boundary at 0.35 and it quietly
+      goes to the cheap model.</p></div>
+      <p class="dim">This deck's own example hit exactly that on the first try.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 13 -->
+<section class="slide">
+  <span class="eyebrow">Providers</span>
+  <h2>Including the one that needs no API key</h2>
+  <div class="two tight">
+    <div class="card">
+      <h4>Anthropic</h4>
+      <p>Messages API, with <code>cache_control</code> breakpoints and an exact
+      token counter.</p>
+    </div>
+    <div class="card">
+      <h4>OpenAI-compatible</h4>
+      <p>One adapter for OpenAI, Ollama, vLLM, llama.cpp, Groq, Together,
+      OpenRouter, LM Studio, Azure.</p>
+    </div>
+    <div class="card">
+      <h4>CLI-backed</h4>
+      <p>Drives <code>claude</code>, <code>codex</code> or <code>opencode</code>
+      through the subscription you already have. <strong>No API key.</strong></p>
+    </div>
+    <div class="card">
+      <h4>Your own</h4>
+      <p>Implement one method. Add <code>SendStream</code> and streaming works
+      too — an optional interface, not a breaking change.</p>
+    </div>
+  </div>
+<pre><code>client, _ := cli.New(cli.ClaudePreset(workdir))
+kit := tokipe.New(client, config.WithCacheAlignment())</code></pre>
+</section>
+
+<!-- 14 -->
+<section class="slide">
+  <span class="eyebrow">Streaming</span>
+  <h2>Incremental output, same pipeline</h2>
+<pre><code><span class="k">for</span> delta, err := <span class="k">range</span> kit.RunStream(ctx, req) {
+    <span class="k">if</span> err != <span class="k">nil</span> { <span class="k">break</span> }
+    fmt.Print(delta.Text)
+    <span class="k">if</span> delta.Usage != <span class="k">nil</span> {
+        <span class="c">// final delta carries the accounting</span>
+    }
+}</code></pre>
+  <p>Every optimization still applies — the request is prepared by the same code
+  path as <code>Run</code>, deliberately shared so the two cannot drift.</p>
+  <p class="dim">A client that does not implement streaming still works; the
+  pipeline falls back to a single response.</p>
+</section>
+
+<!-- 15 -->
+<section class="slide">
+  <span class="eyebrow">Observability</span>
+  <h2>A pipeline that stopped optimizing should not be silent</h2>
+  <div class="two">
+    <div>
+<pre><code>degraded: stage=<span class="o">preprocess</span> reason=<span class="o">rule_canhandle_panicked</span>
+degraded: stage=<span class="o">preprocess</span> reason=<span class="o">rule_returned_nil</span>
+content        = <span class="o">"hello"</span>
+shortCircuited = <span class="o">true</span></code></pre>
+      <p class="dim">Two broken rules, and the turn still succeeded — with a
+      record of exactly what failed.</p>
+    </div>
+    <div>
+      <p>Fail-open without reporting is indistinguishable from working. Every
+      degradation carries the stage, a reason, and the offending component's
+      name.</p>
+      <ul>
+        <li>Latency histograms per stage</li>
+        <li>Counters for short circuits, cache hits, routing decisions</li>
+        <li>OpenTelemetry adapter in a nested module</li>
+      </ul>
+      <div class="note"><p><code>config.WithMetrics</code> wires the
+      <em>pipeline's</em> recorder. The router keeps its own — pass one to
+      <code>NewHeuristicRouterWith</code> or its decisions stay invisible.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 16 -->
+<section class="slide">
+  <span class="eyebrow">Results</span>
+  <h2>Measured, reproducible, both arms identical</h2>
+  <div class="tw" style="margin-bottom:18px">
+    <table>
+      <thead><tr><th>Workload</th><th class="n">Billed input tokens</th><th class="n">Reduction</th></tr></thead>
+      <tbody>
+        <tr><td>12-turn agent workload</td><td class="n">5005 → 2148</td><td class="n"><strong>57.1%</strong></td></tr>
+        <tr><td>100-turn loop, 1200-token budget</td><td class="n">195691 → 88930</td><td class="n"><strong>54.6%</strong></td></tr>
+        <tr><td>LLM calls avoided (preprocess)</td><td class="n">3 of 12</td><td class="n">—</td></tr>
+        <tr><td>Tool executions</td><td class="n">6 → 4</td><td class="n">—</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p><code>go run ./benchmarks</code> reproduces both. Peak request in the long
+  loop: <strong>1192 tokens against a 1200 budget</strong> — every turn stayed
+  inside it.</p>
+</section>
+
+<!-- 17 -->
+<section class="slide">
+  <span class="eyebrow">Putting it together</span>
+  <h2>A realistic configuration</h2>
+<pre><code>kit := tokipe.New(client,
+    config.WithMetrics(rec),
+    config.WithPreprocess(rules...),
+    config.WithToolCache(cache, executor, time.Minute),
+    config.WithRAG(embedder, store, <span class="o">5</span>),
+    config.WithChunkDedupe(),
+    config.WithDefaultCompression(),
+    config.WithHistoryBudget(budget.DefaultPolicy(), counter),
+    config.WithCacheAlignment(),
+    config.WithRouter(router.NewHeuristicRouter(
+        router.Tier{Client: cheap,  MaxComplexity: <span class="o">0.35</span>},
+        router.Tier{Client: strong, MaxComplexity: <span class="o">1.0</span>},
+    )),
+)</code></pre>
+  <div class="note good"><p><strong>Add one line at a time and measure.</strong>
+  Every option is independent, and a stage that does not help your workload is a
+  stage you should not be running.</p></div>
+</section>
+
+<!-- 18 -->
+<section class="slide">
+  <span class="eyebrow">Next</span>
+  <h2>Where to go</h2>
+  <div class="two tight">
+    <div class="card"><h4>README</h4><p>60-second start and the shape of the whole thing.</p></div>
+    <div class="card"><h4>MANUAL.md</h4><p>Every option, every provider, 26 sections.</p></div>
+    <div class="card"><h4>examples/</h4><p>Six runnable programs. None needs a credential.</p></div>
+    <div class="card"><h4>docs/</h4><p>Delivery evidence, QA reports, the production readiness review.</p></div>
+  </div>
+<pre><code>git clone https://github.com/JMjirapat/tokipe
+<span class="k">cd</span> tokipe &amp;&amp; go run ./examples/coding-agent</code></pre>
+  <p class="dim">github.com/JMjirapat/tokipe · v1.0.0 · Go 1.23+</p>
+</section>
+
+</div>
+
+<div class="hud">
+  <button id="prev" aria-label="previous slide">‹</button>
+  <span class="count"><span id="cur">1</span> / <span id="tot">18</span></span>
+  <button id="next" aria-label="next slide">›</button>
+</div>
+<div class="hint"><kbd>←</kbd> <kbd>→</kbd> to move · <kbd>Home</kbd> to restart</div>
+
+<script>
+(function(){
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var i = 0;
+  var cur = document.getElementById('cur');
+  var tot = document.getElementById('tot');
+  var bar = document.getElementById('bar');
+  tot.textContent = slides.length;
+
+  function show(n){
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach(function(s, k){ s.classList.toggle('on', k === i); });
+    cur.textContent = i + 1;
+    bar.style.width = ((i + 1) / slides.length * 100) + '%';
+    if (location.hash !== '#' + (i + 1)) history.replaceState(null, '', '#' + (i + 1));
+    slides[i].scrollTop = 0;
+  }
+
+  document.getElementById('next').addEventListener('click', function(){ show(i + 1); });
+  document.getElementById('prev').addEventListener('click', function(){ show(i - 1); });
+
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { show(i + 1); e.preventDefault(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { show(i - 1); e.preventDefault(); }
+    else if (e.key === 'Home') { show(0); e.preventDefault(); }
+    else if (e.key === 'End') { show(slides.length - 1); e.preventDefault(); }
+  });
+
+  var start = parseInt((location.hash || '#1').slice(1), 10);
+  show(isNaN(start) ? 0 : start - 1);
+})();
+</script>
+</body>
+</html>
