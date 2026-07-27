@@ -306,12 +306,12 @@
       <p>518 tests across 29 packages pass under <code>-race</code>. QA Round 4
       returned GO, and every finding was independently re-verified here.</p>
     </div>
-    <div class="verdict-card no">
-      <span class="tag">The release</span>
-      <h2>Not ready</h2>
-      <p>Three blocking defects in release mechanics. Two of them break for real
-      users on the first <code>go get</code>; one makes the published tag ship
-      known-defective code.</p>
+    <div class="verdict-card ok">
+      <span class="tag">The release · was “not ready”</span>
+      <h2>Ready to push</h2>
+      <p>Three blocking defects in release mechanics — two breaking the first
+      <code>go get</code>, one shipping known-defective code under the tag — plus
+      both decisions. All five are now resolved; only the push remains.</p>
     </div>
   </div>
 
@@ -323,7 +323,7 @@
         <thead><tr><th>#</th><th>Finding</th><th>Status</th></tr></thead>
         <tbody>
           <tr><td>B1</td><td>QA-approved work uncommitted</td><td><span class="pill ok">Fixed</span> committed</td></tr>
-          <tr><td>B2</td><td><code>v1.0.0</code> predates every QA fix</td><td><span class="pill warn">Open</span> the one remaining step; D1 is settled, so the tag can now be placed</td></tr>
+          <tr><td>B2</td><td><code>v1.0.0</code> predates every QA fix</td><td><span class="pill ok">Fixed</span> <code>v1.0.0</code> moved to the final commit; the three nested modules tagged too</td></tr>
           <tr><td>B3</td><td>Two nested modules require an unresolvable version</td><td><span class="pill ok">Fixed</span> both require <code>v1.0.0</code>; end-to-end proof needs the push</td></tr>
           <tr><td>D1</td><td><code>agentkit</code> vs <code>tokipe</code> naming</td><td><span class="pill ok">Resolved</span> renamed to <code>tokipe</code> throughout</td></tr>
           <tr><td>D2</td><td>Benchmark label carries the full module path</td><td><span class="pill ok">Fixed</span></td></tr>
@@ -341,9 +341,11 @@
   <section id="summary">
     <h2 class="sec"><span class="num">01</span> Summary</h2>
     <p class="sec-note">
-      The library passes everything asked of it. What stands between this tree
-      and a publishable v1.0.0 is entirely release mechanics — tagging, module
-      versioning, and one naming decision that a tag would freeze permanently.
+      The library passes everything asked of it. What stood between this tree and
+      a publishable v1.0.0 was entirely release mechanics — tagging, module
+      versioning, and one naming decision that a tag would have frozen
+      permanently. All of it is now resolved; §3 and §4 describe the findings as
+      they were found, §0 records where each one landed.
     </p>
     <div class="table-wrap">
       <table>
@@ -354,7 +356,7 @@
           <tr><td>Portability</td><td><span class="pill ok">Ready</span></td><td>Go 1.23, <code>CGO_ENABLED=0</code>, linux/windows/darwin</td></tr>
           <tr><td>Dependency guarantee</td><td><span class="pill ok">Ready</span></td><td>core module has zero third-party deps</td></tr>
           <tr><td>Measured benefit</td><td><span class="pill ok">Ready</span></td><td>57.1% and 54.6% token reduction</td></tr>
-          <tr><td><b>Release mechanics</b></td><td><span class="pill no">Not ready</span></td><td>3 blocking, 1 decision, 1 minor</td></tr>
+          <tr><td><b>Release mechanics</b></td><td><span class="pill warn">Was not ready</span></td><td>3 blocking, 2 decisions — all resolved; push outstanding</td></tr>
         </tbody>
       </table>
     </div>
@@ -548,10 +550,10 @@ go run ./benchmarks</code></pre>
       <b>done — renamed</b></li>
       <li><s>Fix the nested modules' <code>require</code> versions.</s> <b>done</b></li>
       <li><s>Fix the benchmark label.</s> <b>done</b></li>
-      <li>Delete the local <code>v1.0.0</code>; re-tag the final commit; tag the
-      three submodules.</li>
-      <li>Push, then verify <code>go get</code> end to end from a scratch
-      module.</li>
+      <li><s>Delete the local <code>v1.0.0</code>; re-tag the final commit; tag
+      the three submodules.</s> <b>done</b></li>
+      <li><b>Push, then verify <code>go get</code> end to end from a scratch
+      module.</b> ← the only step left</li>
     </ol>
     <div class="callout">
       <p>Step 6 is not optional. Publication is irreversible: the proxy caches

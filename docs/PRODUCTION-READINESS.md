@@ -2,7 +2,8 @@
 
 **Date:** 2026-07-27
 **Revision reviewed:** `9176327` plus the uncommitted QA round 2–4 working tree
-**Verdict:** **Code is ready. The release is not.**
+**Verdict at review time:** **Code is ready. The release is not.**
+**Verdict now:** all five findings resolved — only the push remains.
 
 Every command in this document was executed, not quoted from an earlier
 document. Where a claim could only be settled by reproducing a failure, it was
@@ -15,7 +16,7 @@ reproduced.
 | # | Finding | Status |
 |---|---|---|
 | B1 | QA-approved work uncommitted | **Fixed** — committed |
-| B2 | `v1.0.0` predates every QA fix | **Open** — the one remaining step; D1 is settled, so the tag can now be placed |
+| B2 | `v1.0.0` predates every QA fix | **Fixed** — `v1.0.0` moved to the final commit; `stores/pgvector`, `toolcache/redis` and `metrics/otel` tagged too |
 | B3 | Two nested modules require an unresolvable version | **Fixed** — both now require `v1.0.0`; end-to-end proof needs the push |
 | D1 | `agentkit` vs `tokipe` naming | **Resolved** — renamed to `tokipe` throughout |
 | D2 | Benchmark label carries the full module path | **Fixed** |
@@ -29,9 +30,11 @@ the end-to-end check belongs to step 6 of §5.
 
 ## 1. Summary
 
-The library itself passes everything asked of it. Five release-mechanics
-defects stand between the current tree and a publishable v1.0.0, and three of
-them will break for real users on the first `go get`.
+The library itself passes everything asked of it. At review time, five
+release-mechanics defects stood between the tree and a publishable v1.0.0, and
+three of them would have broken real users on the first `go get`. All five have
+since been resolved — §3 and §4 describe them as found, §0 records where each
+one landed.
 
 | Area | Status |
 |---|---|
@@ -40,7 +43,7 @@ them will break for real users on the first `go get`.
 | Portability | Ready — Go 1.23, `CGO_ENABLED=0`, linux/windows/darwin |
 | Dependency guarantee | Ready — core module has zero third-party deps |
 | Measured benefit | Ready — 57.1% and 54.6% token reduction |
-| **Release mechanics** | **Not ready — 3 blocking, 2 minor** |
+| **Release mechanics** | **Was not ready — 3 blocking, 2 decisions; all now resolved, push outstanding** |
 
 ---
 
@@ -212,8 +215,8 @@ whole tree before concluding so.
 2. ~~Decide `agentkit` versus `tokipe`.~~ **done — renamed**
 3. ~~Fix the nested modules' `require` versions.~~ **done**
 4. ~~Fix the benchmark label.~~ **done**
-5. Delete the local `v1.0.0`; re-tag the final commit; tag the three submodules.
-6. Push, then verify `go get` end to end from a scratch module.
+5. ~~Delete the local `v1.0.0`; re-tag the final commit; tag the three submodules.~~ **done**
+6. **Push, then verify `go get` end to end from a scratch module.** ← the only step left
 
 Step 6 is not optional. Publication is irreversible: the proxy caches every tag
 it sees, so a mistake found after the push cannot be withdrawn, only superseded
