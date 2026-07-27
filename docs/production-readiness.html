@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Production readiness review for tokipe — verification evidence, blocking release findings, and the recommended release sequence.">
+  <title>tokipe · Production Readiness Review</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17231f;
+      --muted: #5f6f68;
+      --paper: #f3f1e8;
+      --surface: rgba(255, 255, 255, .76);
+      --surface-solid: #fffef9;
+      --line: #d9dbd0;
+      --green: #155e4b;
+      --green-2: #0d8a69;
+      --mint: #d9eee5;
+      --amber: #d77c2f;
+      --amber-soft: #f7e5d1;
+      --red: #a8332b;
+      --red-soft: #f6dedb;
+      --blue: #346a85;
+      --blue-soft: #dfeef3;
+      --shadow: 0 18px 48px rgba(40, 52, 47, .10);
+      --radius: 22px;
+      --max: 1080px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; background: var(--paper); }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 8% 4%, rgba(21, 94, 75, .12), transparent 28rem),
+        radial-gradient(circle at 92% 18%, rgba(215, 124, 47, .13), transparent 26rem),
+        var(--paper);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+
+    a { color: var(--green); }
+
+    .shell { width: min(calc(100% - 40px), var(--max)); margin: 0 auto; }
+
+    /* ---------- masthead ---------- */
+
+    header.masthead { padding: 64px 0 40px; }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 13px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      font-size: .78rem;
+      font-weight: 640;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    h1 {
+      margin: 20px 0 12px;
+      font-size: clamp(2rem, 5vw, 3rem);
+      line-height: 1.08;
+      letter-spacing: -.03em;
+      font-weight: 800;
+    }
+
+    .lede { max-width: 62ch; font-size: 1.08rem; color: var(--muted); margin: 0 0 26px; }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 26px;
+      font-size: .88rem;
+      color: var(--muted);
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+    }
+    .meta b { color: var(--ink); font-weight: 660; }
+
+    /* ---------- verdict ---------- */
+
+    .verdict {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin: 8px 0 44px;
+    }
+
+    .verdict-card {
+      padding: 26px 28px;
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      background: var(--surface-solid);
+      box-shadow: var(--shadow);
+    }
+    .verdict-card.ok { border-color: rgba(13, 138, 105, .45); background: linear-gradient(160deg, var(--mint), var(--surface-solid) 70%); }
+    .verdict-card.no { border-color: rgba(168, 51, 43, .38); background: linear-gradient(160deg, var(--red-soft), var(--surface-solid) 70%); }
+
+    .verdict-card h2 { margin: 0 0 6px; font-size: 1.5rem; letter-spacing: -.02em; }
+    .verdict-card .tag { font-size: .74rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+    .verdict-card p { margin: 10px 0 0; color: var(--muted); font-size: .95rem; }
+
+    /* ---------- sections ---------- */
+
+    section { margin: 0 0 52px; scroll-margin-top: 24px; }
+
+    h2.sec {
+      font-size: 1.5rem;
+      letter-spacing: -.02em;
+      margin: 0 0 6px;
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+    h2.sec .num {
+      font-size: .8rem;
+      font-weight: 700;
+      color: var(--green-2);
+      letter-spacing: .1em;
+    }
+    .sec-note { color: var(--muted); margin: 0 0 22px; max-width: 68ch; }
+
+    h3 { font-size: 1.08rem; letter-spacing: -.01em; margin: 30px 0 8px; }
+
+    p { max-width: 72ch; }
+
+    /* ---------- tables ---------- */
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--surface-solid);
+      box-shadow: var(--shadow);
+    }
+
+    table { border-collapse: collapse; width: 100%; font-size: .93rem; min-width: 480px; }
+    th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    thead th {
+      font-size: .74rem;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+      color: var(--muted);
+      background: rgba(243, 241, 232, .7);
+      white-space: nowrap;
+    }
+    tbody tr:last-child td { border-bottom: 0; }
+    td.num, th.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+    .pill {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: .78rem;
+      font-weight: 660;
+      white-space: nowrap;
+    }
+    .pill.ok { background: var(--mint); color: var(--green); }
+    .pill.no { background: var(--red-soft); color: var(--red); }
+    .pill.warn { background: var(--amber-soft); color: var(--amber); }
+
+    /* ---------- code ---------- */
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+      font-size: .88em;
+      background: rgba(21, 94, 75, .08);
+      padding: 1px 5px;
+      border-radius: 5px;
+    }
+
+    pre {
+      overflow-x: auto;
+      margin: 14px 0;
+      padding: 16px 18px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: #1d2b26;
+      color: #dfe9e4;
+      font-size: .86rem;
+      line-height: 1.5;
+    }
+    pre code { background: none; padding: 0; color: inherit; font-size: 1em; }
+    pre .hl { color: #ffc98b; }
+    pre .dim { color: #7d918a; }
+
+    /* ---------- findings ---------- */
+
+    .finding {
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--red);
+      border-radius: 16px;
+      background: var(--surface-solid);
+      padding: 22px 26px;
+      margin: 18px 0;
+      box-shadow: var(--shadow);
+    }
+    .finding.decision { border-left-color: var(--amber); }
+    .finding h3 { margin: 0 0 4px; font-size: 1.12rem; }
+    .finding .id {
+      font-size: .74rem;
+      font-weight: 720;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+      color: var(--red);
+    }
+    .finding.decision .id { color: var(--amber); }
+    .finding p:last-child { margin-bottom: 0; }
+
+    .fix {
+      margin-top: 14px;
+      padding: 11px 15px;
+      border-radius: 11px;
+      background: var(--blue-soft);
+      font-size: .92rem;
+    }
+    .fix b { color: var(--blue); }
+
+    /* ---------- steps ---------- */
+
+    ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 0; }
+    ol.steps li {
+      counter-increment: s;
+      position: relative;
+      padding: 12px 0 12px 46px;
+      border-bottom: 1px solid var(--line);
+      max-width: 72ch;
+    }
+    ol.steps li:last-child { border-bottom: 0; }
+    ol.steps li::before {
+      content: counter(s);
+      position: absolute;
+      left: 0;
+      top: 11px;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--green);
+      color: #fff;
+      font-size: .82rem;
+      font-weight: 700;
+      display: grid;
+      place-items: center;
+    }
+
+    ul.plain { padding-left: 20px; max-width: 72ch; }
+    ul.plain li { margin-bottom: 10px; }
+
+    .callout {
+      border-left: 4px solid var(--amber);
+      background: var(--amber-soft);
+      padding: 14px 18px;
+      border-radius: 0 12px 12px 0;
+      margin: 18px 0;
+      max-width: 72ch;
+    }
+    .callout p { margin: 0; }
+
+    footer {
+      border-top: 1px solid var(--line);
+      padding: 26px 0 60px;
+      color: var(--muted);
+      font-size: .88rem;
+    }
+
+    @media (max-width: 720px) {
+      .verdict { grid-template-columns: 1fr; }
+      header.masthead { padding: 40px 0 28px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="shell">
+
+  <header class="masthead">
+    <span class="eyebrow">Release Review</span>
+    <h1>tokipe — production readiness</h1>
+    <p class="lede">
+      Every command below was executed against the reviewed tree, not quoted from
+      an earlier document. Where a claim could only be settled by reproducing a
+      failure, it was reproduced.
+    </p>
+    <div class="meta">
+      <span><b>Date</b> 2026-07-27</span>
+      <span><b>Revision</b> <code>9176327</code> + uncommitted QA rounds 2–4</span>
+      <span><b>Module</b> <code>github.com/JMjirapat/tokipe</code></span>
+      <span><b>Go</b> 1.23+</span>
+    </div>
+  </header>
+
+  <div class="verdict">
+    <div class="verdict-card ok">
+      <span class="tag">The library</span>
+      <h2>Ready</h2>
+      <p>518 tests across 29 packages pass under <code>-race</code>. QA Round 4
+      returned GO, and every finding was independently re-verified here.</p>
+    </div>
+    <div class="verdict-card no">
+      <span class="tag">The release</span>
+      <h2>Not ready</h2>
+      <p>Three blocking defects in release mechanics. Two of them break for real
+      users on the first <code>go get</code>; one makes the published tag ship
+      known-defective code.</p>
+    </div>
+  </div>
+
+  <section id="status">
+    <h2 class="sec"><span class="num">00</span> Status</h2>
+    <p class="sec-note">Where each finding stands as of this revision.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Finding</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>B1</td><td>QA-approved work uncommitted</td><td><span class="pill ok">Fixed</span> committed</td></tr>
+          <tr><td>B2</td><td><code>v1.0.0</code> predates every QA fix</td><td><span class="pill warn">Held</span> waiting on D1 — tagging first would only have to be undone</td></tr>
+          <tr><td>B3</td><td>Two nested modules require an unresolvable version</td><td><span class="pill ok">Fixed</span> both require <code>v1.0.0</code>; end-to-end proof needs the push</td></tr>
+          <tr><td>D1</td><td><code>agentkit</code> vs <code>tokipe</code> naming</td><td><span class="pill no">Open</span> decision required</td></tr>
+          <tr><td>D2</td><td>Benchmark label carries the full module path</td><td><span class="pill ok">Fixed</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <p>B3 is fixed as far as it can be verified locally. The three nested
+      modules still build and pass on Go 1.23, and the version they require is
+      now one that will exist. The failure mode it fixes only reproduces against
+      a published proxy, so the end-to-end check belongs to step 6 of §5.</p>
+    </div>
+  </section>
+
+  <section id="summary">
+    <h2 class="sec"><span class="num">01</span> Summary</h2>
+    <p class="sec-note">
+      The library passes everything asked of it. What stands between this tree
+      and a publishable v1.0.0 is entirely release mechanics — tagging, module
+      versioning, and one naming decision that a tag would freeze permanently.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Area</th><th>Status</th><th>Basis</th></tr></thead>
+        <tbody>
+          <tr><td>Code correctness</td><td><span class="pill ok">Ready</span></td><td>QA Round 4 GO, re-verified</td></tr>
+          <tr><td>Tests &amp; coverage</td><td><span class="pill ok">Ready</span></td><td>518 tests, 29 packages, race-clean</td></tr>
+          <tr><td>Portability</td><td><span class="pill ok">Ready</span></td><td>Go 1.23, <code>CGO_ENABLED=0</code>, linux/windows/darwin</td></tr>
+          <tr><td>Dependency guarantee</td><td><span class="pill ok">Ready</span></td><td>core module has zero third-party deps</td></tr>
+          <tr><td>Measured benefit</td><td><span class="pill ok">Ready</span></td><td>57.1% and 54.6% token reduction</td></tr>
+          <tr><td><b>Release mechanics</b></td><td><span class="pill no">Not ready</span></td><td>3 blocking, 1 decision, 1 minor</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="verification">
+    <h2 class="sec"><span class="num">02</span> Verification performed</h2>
+    <p class="sec-note">Reproduce from a clean checkout of the reviewed tree.</p>
+
+<pre><code>go build ./... &amp;&amp; go vet ./... &amp;&amp; go test -race -count=1 ./...
+CGO_ENABLED=0 go build ./...
+GOOS=windows go build ./... &amp;&amp; GOOS=linux go build ./...
+go run ./benchmarks</code></pre>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Check</th><th>Command</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td>Build and vet</td><td><code>go build ./... &amp;&amp; go vet ./...</code></td><td>clean</td></tr>
+          <tr><td>Full race suite</td><td><code>go test -race -count=1 ./...</code></td><td><b>518 pass</b>, 29 packages, 394 test functions</td></tr>
+          <tr><td>No CGo</td><td><code>CGO_ENABLED=0 go build ./...</code></td><td>clean</td></tr>
+          <tr><td>Cross-compile</td><td><code>GOOS=windows</code>, <code>GOOS=linux</code></td><td>both build</td></tr>
+          <tr><td>Zero third-party deps</td><td>the exact CI command, re-run verbatim</td><td><b>none found</b></td></tr>
+          <tr><td>Nested modules on Go 1.23</td><td><code>GOTOOLCHAIN=local go test -race ./...</code></td><td>pgvector 14, redis 7, otel 7</td></tr>
+          <tr><td>Token reduction</td><td><code>go run ./benchmarks</code></td><td><b>57.1%</b> over 12 turns (target ≥30%)</td></tr>
+          <tr><td>Long-loop budget</td><td>same, long-loop section</td><td><b>54.6%</b> over 100 turns, peak 1192 vs a 1200 limit</td></tr>
+          <tr><td>Examples</td><td><code>go run ./examples/&lt;name&gt;</code></td><td>all six complete, no credentials</td></tr>
+          <tr><td>README inventory guard</td><td><code>go test ./...</code></td><td>markers match the tree</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <p><code>GOTOOLCHAIN=local</code> matters here. It proves the nested modules
+      actually build on Go 1.23 rather than silently downloading a newer
+      toolchain — which is exactly how finding M7 escaped the first time.</p>
+    </div>
+
+    <h3>Coverage</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Package</th><th class="num">Cov</th><th>Package</th><th class="num">Cov</th></tr></thead>
+        <tbody>
+          <tr><td>root</td><td class="num">100.0%</td><td><code>providers/anthropic</code></td><td class="num">93.2%</td></tr>
+          <tr><td><code>router</code></td><td class="num">100.0%</td><td><code>toolcache</code></td><td class="num">93.2%</td></tr>
+          <tr><td><code>internal/safe</code></td><td class="num">100.0%</td><td><code>compress</code></td><td class="num">93.3%</td></tr>
+          <tr><td><code>rag</code></td><td class="num">97.9%</td><td><code>pipeline</code></td><td class="num">90.4%</td></tr>
+          <tr><td><code>cache</code></td><td class="num">97.2%</td><td><code>providers/cli</code></td><td class="num">90.0%</td></tr>
+          <tr><td><code>preprocess</code></td><td class="num">96.7%</td><td><code>config</code></td><td class="num">89.7%</td></tr>
+          <tr><td><code>budget</code></td><td class="num">96.1%</td><td><code>providers/openai</code></td><td class="num">88.9%</td></tr>
+          <tr><td><code>history</code></td><td class="num">94.4%</td><td><code>lazyload</code></td><td class="num">88.1%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:14px"><code>internal/safe</code> at 100% is the one that
+    matters most: it is the containment boundary the entire fail-open guarantee
+    rests on.</p>
+  </section>
+
+  <section id="blocking">
+    <h2 class="sec"><span class="num">03</span> Blocking findings</h2>
+    <p class="sec-note">None of these is a code defect. All three will cause real
+    failures the moment the repository is published.</p>
+
+    <div class="finding">
+      <span class="id">B1 · Blocker</span>
+      <h3>The QA-approved work is uncommitted</h3>
+      <p>Thirteen modified files plus two new ones
+      (<code>providers/cli/process_unix.go</code>,
+      <code>providers/cli/process_fallback.go</code>) exist only in the working
+      tree.</p>
+      <p><b>The Round 4 GO verdict was issued against the working tree, not
+      against any commit.</b> No commit in this repository currently contains the
+      code that passed QA. A lost working directory loses QA rounds 2 through 4.</p>
+      <div class="fix"><b>Fix:</b> commit the tree before anything else happens.</div>
+    </div>
+
+    <div class="finding">
+      <span class="id">B2 · Blocker</span>
+      <h3><code>v1.0.0</code> points at code with every QA defect still in it</h3>
+<pre><code>d767f48  Phase 8
+0225dc1  rename to github.com/JMjirapat/tokipe
+6654cdc  docs                        <span class="hl">← v1.0.0 points here</span>
+093fd6c  docs: DELIVERY-2
+9176327  fix: nine QA findings       <span class="hl">← QA round 1 lands after the tag</span>
+(working tree)                       <span class="hl">← QA rounds 2–4 land here</span></code></pre>
+      <p>The tag predates every fix. Anyone resolving <code>@v1.0.0</code>
+      receives the nine Round 1 defects plus the four from Round 2 — including a
+      <code>TokenCounter</code> panic that escapes <code>Pipeline.Run</code>, a
+      dedupe that discards <code>allow</code> in favour of <code>deny</code>, and
+      a <code>CodeCompressor</code> that eats cgo preambles.</p>
+      <p>The tag has also already been <b>moved once</b>: the original release
+      commit is <code>d6f6429</code>, preserved as
+      <code>v1.0.0-agentkit-path</code>. That is harmless only because nothing has
+      been pushed. <b>Once a tag reaches the Go module proxy it is cached
+      permanently and cannot be corrected</b> — a moved tag after publication
+      produces a checksum mismatch for every consumer who fetched the earlier
+      one.</p>
+      <div class="fix"><b>Fix:</b> delete the local <code>v1.0.0</code>, tag the
+      final commit, and never move it again after pushing.</div>
+    </div>
+
+    <div class="finding">
+      <span class="id">B3 · Blocker</span>
+      <h3>Two nested modules cannot be consumed by anyone</h3>
+      <div class="table-wrap" style="margin:12px 0">
+        <table>
+          <thead><tr><th>Module</th><th>Requires</th><th>Resolvable?</th></tr></thead>
+          <tbody>
+            <tr><td><code>stores/pgvector</code></td><td><code>tokipe v0.0.0</code></td><td><span class="pill no">No</span></td></tr>
+            <tr><td><code>toolcache/redis</code></td><td><code>tokipe v0.0.0-00010101000000-000000000000</code></td><td><span class="pill no">No</span></td></tr>
+            <tr><td><code>metrics/otel</code></td><td><code>tokipe v1.0.0</code></td><td><span class="pill ok">Yes</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>A <code>replace</code> directive is <b>ignored when its module is
+      consumed as a dependency</b> — it applies only to the main module.
+      Downstream, the <code>require</code> line must resolve on its own.
+      <code>v0.0.0</code> has no corresponding tag, and
+      <code>v0.0.0-00010101000000-000000000000</code> is the placeholder Go writes
+      for a replaced module; it is unresolvable by construction.</p>
+      <p>Reproduced with a probe module standing in for a downstream consumer:</p>
+<pre><code>go: downloading github.com/JMjirapat/tokipe v0.0.0
+<span class="dim">reading github.com/JMjirapat/tokipe/go.mod at revision v0.0.0: ... not found</span></code></pre>
+      <p>Separately, all three nested modules need their <b>own</b> tags —
+      <code>stores/pgvector/v1.0.0</code>, <code>toolcache/redis/v1.0.0</code>,
+      <code>metrics/otel/v1.0.0</code> — before <code>go get</code> can install
+      them at all.</p>
+      <div class="fix"><b>Fix:</b> pin each nested module's <code>require</code> to
+      a version that will actually exist, and tag the submodules.</div>
+    </div>
+  </section>
+
+  <section id="decisions">
+    <h2 class="sec"><span class="num">04</span> Decision required before tagging</h2>
+    <p class="sec-note">Not defects — but the first one stops being free the
+    moment a tag is pushed.</p>
+
+    <div class="finding decision">
+      <span class="id">D1 · Decision</span>
+      <h3>Module, package and metric names disagree</h3>
+<pre><code>module   github.com/JMjirapat/tokipe
+package  agentkit                     <span class="dim">→ callers write agentkit.New()</span>
+metrics  "agentkit.stage_latency_ms"
+env      AGENTKIT_CLI_LIVE
+README   "# agentkit"</code></pre>
+      <p>This is legal Go and it works. It is also confusing: a user runs
+      <code>go get github.com/JMjirapat/tokipe</code> and then types
+      <code>agentkit.New</code>.</p>
+      <p>The reason it belongs in a release review rather than a backlog is that
+      <b>v1.0 freezes it</b>. The package name is part of every importer's
+      source. The metric names are part of every dashboard and alert rule built
+      on top of the library. Changing either after publication is a breaking
+      change for both.</p>
+      <div class="fix"><b>If the rename to <code>tokipe</code> is wanted, it must
+      happen before the tag.</b> Otherwise <code>agentkit.New()</code> is the API
+      for the life of v1.</div>
+    </div>
+
+    <div class="finding decision">
+      <span class="id">D2 · Minor</span>
+      <h3>Collateral from the module rename</h3>
+      <p><code>benchmarks/main.go:73</code> passes the full module path where a
+      short label belongs:</p>
+<pre><code>github.com/JMjirapat/tokipe  billed=  2148</code></pre>
+      <p>This is the <b>only</b> place the rename damaged a string literal — every
+      metric name survived intact, which was checked explicitly across the whole
+      tree.</p>
+    </div>
+  </section>
+
+  <section id="sequence">
+    <h2 class="sec"><span class="num">05</span> Recommended sequence</h2>
+    <ol class="steps">
+      <li>Commit the QA round 2–4 work.</li>
+      <li>Decide <code>agentkit</code> versus <code>tokipe</code> — <b>this is the
+      last moment it is free</b>.</li>
+      <li>Fix the nested modules' <code>require</code> versions.</li>
+      <li>Fix the benchmark label.</li>
+      <li>Delete the local <code>v1.0.0</code>; re-tag the final commit; tag the
+      three submodules.</li>
+      <li>Push, then verify <code>go get</code> end to end from a scratch
+      module.</li>
+    </ol>
+    <div class="callout">
+      <p>Step 6 is not optional. Publication is irreversible: the proxy caches
+      every tag it sees, so a mistake found after the push cannot be withdrawn,
+      only superseded by a new version.</p>
+    </div>
+  </section>
+
+  <section id="limitations">
+    <h2 class="sec"><span class="num">06</span> Known limitations, unchanged</h2>
+    <p class="sec-note">Documented rather than defects. None blocks release.</p>
+    <ul class="plain">
+      <li><b>The Anthropic prompt-caching test has never run against the live
+      endpoint.</b> It needs pay-as-you-go API credit, which a Claude Pro or Max
+      subscription does not provide. It skips without a key, so CI stays green.</li>
+      <li><b>The pgvector CI job has never executed.</b> It requires Docker,
+      unavailable on the development machine. The first real run will be on
+      GitHub Actions.</li>
+      <li><b>Chunk dedupe is lexical, not semantic.</b> It catches copies and
+      near-copies. Two passages saying the same thing in different words need
+      embeddings — a Phase 9 question, not a silent upgrade to this one.</li>
+      <li><b>The CLI provider cannot measure cache alignment.</b> CLI backends do
+      not report cache token counts; alignment there is a correctness property,
+      not a measured one.</li>
+    </ul>
+  </section>
+
+  <footer>
+    tokipe · production readiness review · 2026-07-27 —
+    companion to <a href="DELIVERY-2.md">DELIVERY-2.md</a>,
+    <a href="QA-REPORT-2.md">QA-REPORT-2.md</a> and
+    <a href="system-summary.html">the system summary</a>.
+    Markdown source: <a href="PRODUCTION-READINESS.md">PRODUCTION-READINESS.md</a>.
+  </footer>
+
+</div>
+</body>
+</html>

@@ -4,7 +4,10 @@ go 1.23
 
 require github.com/jackc/pgx/v5 v5.7.2
 
-require github.com/JMjirapat/tokipe v0.0.0
+// The replace directive below only applies while this module is the main
+// module. Consumed as a dependency it is ignored, so this version must be one
+// that actually resolves from the proxy — v0.0.0 never did.
+require github.com/JMjirapat/tokipe v1.0.0
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect

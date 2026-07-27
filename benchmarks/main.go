@@ -70,8 +70,7 @@ func main() {
 
 	fmt.Printf("\n%s\n", strings.Repeat("═", 64))
 	report("baseline", base)
-	report("github.com/JMjirapat/tokipe", opt)
-
+	report("agentkit", opt)
 	report("+history", trimmed)
 	reduction := 100 * (1 - opt.billed/base.billed)
 	withHistory := 100 * (1 - trimmed.billed/base.billed)

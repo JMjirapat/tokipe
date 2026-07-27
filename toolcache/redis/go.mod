@@ -5,7 +5,9 @@ go 1.23
 replace github.com/JMjirapat/tokipe => ../..
 
 require (
-	github.com/JMjirapat/tokipe v0.0.0-00010101000000-000000000000
+	// v0.0.0-00010101... is the placeholder Go writes for a replaced module.
+	// The replace below is ignored downstream, so this must be a real version.
+	github.com/JMjirapat/tokipe v1.0.0
 	github.com/alicebob/miniredis/v2 v2.33.0
 	github.com/redis/go-redis/v9 v9.7.3
 )
