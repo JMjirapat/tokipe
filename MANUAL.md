@@ -1,8 +1,8 @@
 # agentkit User Manual
 
 This manual explains how to integrate, configure, operate, and extend
-`agentkit`. It describes the current v1 source tree and its observable
-contracts.
+`agentkit`. It describes the frozen v1 core plus the additive Delivery 2
+capabilities in the current source tree.
 
 ## 1. When to use agentkit
 
@@ -34,8 +34,9 @@ to expose.
 
 ### Current local-module setup
 
-The repository currently uses the module path `agentkit` and has no configured
-Git remote. Applications inside this checkout can import packages directly.
+The module path is `github.com/JMjirapat/tokipe`; the root package name remains
+`agentkit`. The repository is not published yet, so a separate application must
+use a local replacement until the module is pushed.
 
 For a separate application located next to this checkout:
 
@@ -46,14 +47,15 @@ go 1.23
 
 require github.com/JMjirapat/tokipe v1.0.0
 
-
+replace github.com/JMjirapat/tokipe => ../tokipe
 ```
 
-After the project is published, replace the temporary module path and
-`replace` directive with its canonical repository URL and tagged version.
+After publication, remove the `replace` directive and keep the canonical module
+path and tagged version.
 
-The Redis and pgvector adapters are nested Go modules. Consumers that need
-them must add those modules and their third-party drivers explicitly.
+The Redis, pgvector, and OpenTelemetry adapters are nested Go modules.
+Consumers that need them must add those modules and their third-party
+dependencies explicitly. The root module remains standard-library-only.
 
 ## 3. Mental model
 
@@ -66,12 +68,14 @@ caller
   ├─ preprocess ───── may return a final response immediately
   ├─ tool cache ───── resolves repeatable tool calls
   ├─ RAG ──────────── adds retrieved chunks
+  ├─ chunk dedupe ─── removes duplicate evidence
   ├─ compression ──── shrinks retrieved chunks
+  ├─ history budget ─ trims messages/chunks to the turn limit
   ├─ custom stages ── caller-specific processing
   ├─ cache alignment  reorders content and places breakpoints
   ├─ routing ───────── chooses the final client
   ▼
-ModelClient.Send
+ModelClient.Send or StreamingClient.SendStream
 ```
 
 `config.Config` owns this order. Do not treat it as a presentation detail:
@@ -167,7 +171,12 @@ kit := agentkit.New(strongClient,
 		30*time.Minute,
 	),
 	config.WithRAG(embedder, store, 5),
+	config.WithChunkDedupe(),
 	config.WithDefaultCompression(),
+	config.WithHistoryBudget(
+		budget.DefaultPolicy(),
+		nil, // nil uses budget.CharEstimator
+	),
 	config.WithStage(myStage),
 	config.WithCacheAlignment(),
 	config.WithRouter(router.NewHeuristicRouter(
@@ -269,6 +278,32 @@ client, err := cli.New(cfg)
 
 Without `StreamParse`, `RunStream` remains valid but waits for `Send` and emits
 one completed delta. This avoids exposing protocol/log lines as answer text.
+
+### OpenAI-compatible provider
+
+One adapter supports OpenAI's chat-completions API and compatible servers such
+as Ollama, vLLM, llama.cpp, Groq, Together, OpenRouter, LM Studio, and Azure
+OpenAI:
+
+```go
+client, err := openai.New(openai.Config{
+	APIKey:  os.Getenv("OPENAI_API_KEY"), // optional for local servers
+	BaseURL: "https://api.openai.com/v1",
+	Model:   "gpt-4o-mini",
+	ExtraHeaders: map[string]string{
+		// Add provider-specific headers only when required.
+	},
+})
+```
+
+Set `BaseURL` to the server's `/v1` endpoint. `APIKey` may be empty for local
+servers. Non-2xx responses are returned as `*openai.Error`, whose `Retryable`
+method recognizes 429 and 5xx responses.
+
+The adapter supports streaming and usage reporting. Explicit
+`CacheBreakpoints` are not serialized because this API has no portable
+`cache_control` field; cache alignment still improves automatic longest-prefix
+caches by stabilizing request order.
 
 ### Custom provider
 
@@ -462,10 +497,53 @@ config.WithCompression(
 
 The text compressor only normalizes whitespace; it does not summarize, remove
 sentences, or change non-whitespace tokens. Register catch-all text compression
-last. `CodeCompressor` is intentionally inert in v1.
+last.
+
+`CodeCompressor` handles complete Go files with `go/ast`:
+
+```go
+config.WithCompression(
+	compress.NewJSONCompressor(),
+	compress.NewCodeCompressor(),
+	compress.NewTextCompressor(),
+)
+```
+
+By default it removes comments and retains function bodies. It refuses invalid
+Go, compiler directives, and cgo files (`import "C"`), and returns the original
+when the result grows, stops parsing, or loses a declaration.
+
+`compress.WithBodyElision()` replaces function bodies while retaining the API
+surface. That is intentionally lossy: use it for API discovery, never when the
+model must inspect behavior.
 
 Compression applies to retrieved chunks. If a compressor errors or panics, the
 original chunk is preserved.
+
+### Chunk dedupe
+
+Enable dedupe separately:
+
+```go
+config.WithChunkDedupe()
+```
+
+It runs after RAG and before compression. The safe default drops a chunk only
+when its complete normalized word sequence equals one already kept; formatting,
+case, and surrounding punctuation may normalize away, but reordered or changed
+words remain distinct.
+
+Lowering the threshold explicitly enables lossy lexical near-deduplication:
+
+```go
+config.WithChunkDedupe(
+	compress.WithDedupeThreshold(0.90),
+)
+```
+
+Any threshold below `1.0` can discard a near-copy with a meaningful difference.
+Keep the default unless that quality trade-off has been evaluated on real
+retrieval results.
 
 ## 11. Prompt-cache alignment
 
@@ -543,11 +621,20 @@ alone.
 
 ## 13. Turn budgets
 
-Budgeting is policy, not an automatic stage:
+`WithHistoryBudget` installs a stage that enforces `budget.Policy` after
+compression and before cache alignment:
 
 ```go
+kit := agentkit.New(client,
+	config.WithHistoryBudget(
+		budget.DefaultPolicy(),
+		nil, // nil = budget.CharEstimator
+		history.WithRetention(2, 4),
+	),
+	config.WithCacheAlignment(),
+)
+
 req.TurnType = budget.Classify(req)
-limit := budget.DefaultPolicy().BudgetFor(req.TurnType)
 ```
 
 Defaults are:
@@ -559,8 +646,19 @@ Defaults are:
 | Error recovery | 20,000 tokens |
 
 The classifier is heuristic. If your orchestrator knows the actual turn type,
-set it directly. Your application or model adapter is responsible for applying
-the resulting limit.
+set it directly.
+
+The stage never removes static/system content or the newest message. It trims
+eligible middle history first, then lower-ranked retrieved chunks while keeping
+at least one. If protected content alone exceeds the limit, the request
+continues and `history.over_budget` is reported.
+
+The default counter is `budget.CharEstimator`: free and approximate. For a hard
+Anthropic context limit, use `anthropic.NewTokenCounter(client)`. A counter
+failure is fail-open and reported as a degradation.
+
+An optional `history.Summarizer` may replace dropped messages with a smaller
+summary. It can add model cost and latency, so it is opt-in.
 
 ## 14. Lazy loading
 
@@ -621,7 +719,7 @@ Compose `pipeline.New` or `pipeline.NewWithRouter` directly only when you
 intentionally need a different order and accept responsibility for cache
 alignment correctness.
 
-## 16. Metrics
+## 16. Metrics and degradation observability
 
 All metrics are optional:
 
@@ -632,8 +730,19 @@ kit := agentkit.New(client, config.WithMetrics(rec))
 snapshot := rec.Snapshot()
 ```
 
-`metrics.InMemory` is intended for tests and examples. Production systems can
-implement:
+`metrics.InMemory` records counters. `metrics.NewObservability()` additionally
+records histograms, gauges, and degradation events:
+
+```go
+rec := metrics.NewObservability()
+kit := agentkit.New(client, config.WithMetrics(rec))
+
+degradations := rec.Degradations()
+latencyByStage := rec.SummaryBy(metrics.StageLatency, "stage")
+```
+
+Production systems can implement the minimal counter interfaces plus any of
+the optional interfaces:
 
 ```go
 type Recorder interface {
@@ -643,15 +752,42 @@ type Recorder interface {
 type Counter interface {
 	Inc(labels map[string]string)
 }
+
+type HistogramRecorder interface {
+	Histogram(name string) Histogram
+}
+
+type GaugeRecorder interface {
+	Gauge(name string) Gauge
+}
+
+type DegradationReporter interface {
+	Degraded(metrics.Degradation)
+}
 ```
 
 Recorder panics and nil counters are contained. Diagnostics never become a
 hard dependency.
 
-Important counter families include preprocess short circuits, tool-cache
-hits/misses/coalescing, RAG outcomes, compression outcomes, cache alignment,
-and router decisions. Inspect package constants and labels before building
-dashboards because the interface is intentionally minimal.
+`Degradation` contains a stable stage and reason plus variable error/detail
+data. Keep error strings out of metric labels. Important signals include
+`metrics.StageLatency`, `metrics.StageDegraded`,
+`history.MetricTokensAfter`, cache hit/miss rates, and preprocess short
+circuits.
+
+For OpenTelemetry, use the separate `metrics/otel` module:
+
+```go
+rec := otel.New(meterProvider.Meter("myservice"),
+	otel.WithDegradationHandler(func(d metrics.Degradation) {
+		slog.Warn("agentkit degraded",
+			"stage", d.Stage, "reason", d.Reason, "err", d.Err)
+	}),
+)
+```
+
+The adapter pins an OpenTelemetry version compatible with Go 1.23. See
+`examples/observability`, including `-break`, for a complete operational view.
 
 ## 17. Streaming responses
 
@@ -719,8 +855,11 @@ if err != nil {
 }
 ```
 
-Breaking out of a range loop does not cancel provider work by itself. Pass a
-cancellable context and cancel it when the consumer stops early.
+Provider implementations own iterator cleanup. The in-tree CLI adapter
+terminates its subprocess tree when the consumer stops early; HTTP providers
+close response bodies. Custom streaming providers should implement the same
+contract. A cancellable context is still required for request deadlines and
+application-driven cancellation.
 
 ## 18. Error handling
 
@@ -790,10 +929,13 @@ Recommended sequence:
    task-quality metrics.
 2. Enable metrics and deterministic preprocess rules.
 3. Add tool caching for one proven-safe tool at a time.
-4. Add RAG and compression; evaluate answer quality and citation correctness.
-5. Enable cache alignment and inspect real provider cache-read/write usage.
-6. Add routing in shadow mode, then progressively shift simple traffic.
-7. Revisit TTLs, top-K, router weights, and budgets from production data.
+4. Add RAG, exact dedupe, and compression; evaluate answer quality and citation
+   correctness.
+5. Add history budgets and alert on over-budget/degradation signals.
+6. Enable cache alignment and inspect real provider cache-read/write usage.
+7. Add routing in shadow mode, then progressively shift simple traffic.
+8. Enable streaming where user experience benefits from partial output.
+9. Revisit TTLs, top-K, router weights, and budgets from production data.
 
 Keep a kill switch for each option. Because configuration is compositional, a
 problematic optimization can be removed without redesigning the request path.
@@ -829,6 +971,19 @@ Run `examples/local-routing`, inspect prompt shapes and chunk counts, then tune
 tier thresholds or signal weights. A policy appropriate for long code may be
 wrong for chunk-heavy synthesis.
 
+### “History stays over budget”
+
+Set `TurnType`, confirm the selected policy has a positive budget, and inspect
+`history.tokens_before`, `history.tokens_after`, and degradation events. Static
+messages, configured head/tail retention, the newest message, and at least one
+retrieved chunk are protected.
+
+### “Dedupe removed evidence I needed”
+
+Use the default threshold of `1.0`. Any lower value is explicitly lossy.
+Re-evaluate whether lexical near-deduplication is appropriate for policy,
+generated, or repetitive content.
+
 ### “A custom stage panic crashes the caller”
 
 That is the documented contract for caller-owned stages. Recover inside
@@ -842,6 +997,8 @@ go run ./examples/rag-chatbot
 go run ./examples/local-routing
 go run ./examples/coding-agent
 go run ./examples/cli-provider
+go run ./examples/streaming
+go run ./examples/observability
 go run ./benchmarks
 ```
 
@@ -850,11 +1007,12 @@ Repository verification:
 ```bash
 go build ./...
 go vet ./...
-go test -race ./...
+go test -race -count=1 ./...
 CGO_ENABLED=0 go build ./...
 
-(cd stores/pgvector && go test -race ./...)
-(cd toolcache/redis && go test -race ./...)
+(cd stores/pgvector && GOTOOLCHAIN=local go test -race -count=1 ./...)
+(cd toolcache/redis && GOTOOLCHAIN=local go test -race -count=1 ./...)
+(cd metrics/otel && GOTOOLCHAIN=local go test -race -count=1 ./...)
 ```
 
 Credential-gated checks:

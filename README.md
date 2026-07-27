@@ -9,11 +9,14 @@ request
   → deterministic preprocess
   → tool-result cache
   → retrieval (RAG)
+  → chunk dedupe
   → safe compression
+  → history budget
   → custom stages
   → prompt-cache alignment
   → model routing
-  → response
+  → model send / stream
+  → response or deltas
 ```
 
 It is a library, not a hosted service. The core module uses only the Go
@@ -25,7 +28,8 @@ backends.
 - [Full user manual](MANUAL.md)
 - [High-level system summary](docs/system-summary.html)
 - [Runnable examples](examples)
-- [Delivery evidence](docs/DELIVERY-1.md)
+- [Delivery 1 evidence](docs/DELIVERY-1.md)
+- [Delivery 2 evidence and current QA status](docs/DELIVERY-2.md)
 
 Requirements: Go 1.23 or newer.
 
@@ -84,7 +88,9 @@ kit := agentkit.New(defaultClient,
 	config.WithPreprocess(rules...),
 	config.WithToolCache(toolcache.NewMemoryCache(), executeTool, 30*time.Minute),
 	config.WithRAG(embedder, vectorStore, 5),
+	config.WithChunkDedupe(),
 	config.WithDefaultCompression(),
+	config.WithHistoryBudget(budget.DefaultPolicy(), nil),
 	config.WithCacheAlignment(),
 	config.WithRouter(router.NewHeuristicRouter(
 		router.Tier{Client: cheapClient, MaxComplexity: 0.35},
@@ -171,7 +177,7 @@ type ModelClient interface {
 | Tool cache | `config.WithToolCache` | Reuses identical tool results and coalesces concurrent misses |
 | RAG | `config.WithRAG` | Embeds the query and retrieves top-K chunks |
 | Compression | `config.WithDefaultCompression` | Minifies JSON, collapses prose whitespace, strips Go comments via `go/ast` |
-| Chunk dedupe | `config.WithChunkDedupe` | Drops retrieved chunks that duplicate one already kept |
+| Chunk dedupe | `config.WithChunkDedupe` | Drops exact normalized duplicates by default; lower similarity thresholds are explicit lossy opt-in |
 | Cache alignment | `config.WithCacheAlignment` | Keeps static prompt content first and emits safe breakpoints |
 | Routing | `config.WithRouter` | Selects the cheapest suitable model after prompt shaping |
 | Metrics | `config.WithMetrics` | Provider-neutral counters, plus optional histograms, gauges and degradation events; no-op by default |
@@ -182,8 +188,9 @@ type ModelClient interface {
 | Streaming | `kit.RunStream` instead of `kit.Run` | Delivers the answer incrementally; every stage still runs first |
 
 The built-in order is a correctness rule: retrieval and compression must finish
-before cache alignment. Custom stages added through `config.WithStage` also run
-before alignment. Routing runs last so it scores the final prompt shape.
+before history budgeting and cache alignment. Custom stages added through
+`config.WithStage` also run before alignment. Routing runs last so it scores the
+final prompt shape.
 
 ## Request and result
 
@@ -283,9 +290,10 @@ What it will not do, by design:
   first non-static bytes every turn, so providers that cache on longest-common-
   prefix never get a hit. Head and tail survive; `WithRetention` sets how much.
 
-If it cannot fit the budget without breaking those rules, it leaves the request
-alone and reports `history.over_budget` rather than trimming something it
-promised not to.
+If messages are protected but retrieved chunks are present, it can remove
+lower-ranked chunks while retaining at least one. If the request still cannot
+fit without breaking its retention rules, it reports `history.over_budget`
+rather than trimming something it promised not to.
 
 For an exact count instead of an estimate, pass a provider-backed counter —
 `anthropic.NewTokenCounter(client)` calls `/v1/messages/count_tokens` and
@@ -293,6 +301,34 @@ memoises per string, since a trimming pass re-measures unchanged history every
 turn. It costs a round trip; the estimator costs nothing and is systematically
 wrong on code and CJK. Use the exact counter when trimming against a hard
 context limit, the estimator when trimming for cost.
+
+## Compression and duplicate safety
+
+`WithDefaultCompression` enables conservative JSON minification and prose
+whitespace normalization. To compress complete Go files, register the AST-aware
+compressor explicitly:
+
+```go
+config.WithCompression(
+	compress.NewJSONCompressor(),
+	compress.NewCodeCompressor(), // comments removed; bodies retained by default
+	compress.NewTextCompressor(), // catch-all must stay last
+)
+```
+
+`CodeCompressor` refuses files containing compiler directives or `import "C"`,
+returns the original when output is not smaller or no longer parses, and keeps
+function bodies unless `compress.WithBodyElision()` is explicitly selected.
+
+Chunk dedupe is separate from compression:
+
+```go
+config.WithChunkDedupe() // safe default: exact normalized word sequence
+```
+
+Setting `compress.WithDedupeThreshold` below `1.0` opts into lossy lexical
+near-deduplication. Use that only when duplicate-token savings are worth the
+risk of discarding subtly different evidence.
 
 ## Failure contract
 
@@ -388,12 +424,12 @@ CGO_ENABLED=0 go build ./...
 
 A healthy checkout reports:
 
-<!-- inventory:test-funcs=390 -->
+<!-- inventory:test-funcs=394 -->
 <!-- inventory:packages=29 -->
 
 | Quantity | Value | Command |
 |---|---|---|
-| Test/Example functions | **390** | `grep -rhoE '^func (Test\|Example)[A-Za-z0-9_]*' --include='*_test.go' . \| wc -l` |
+| Test/Example functions | **394** | `grep -rhoE '^func (Test\|Example)[A-Za-z0-9_]*' --include='*_test.go' . \| wc -l` |
 | Packages in the root module | **29** | `go list ./... \| wc -l` |
 | Failures | **0** | `go test -race -count=1 ./...` |
 
@@ -416,7 +452,9 @@ The v1 core interfaces remain frozen:
 - `toolcache.Cache`
 
 Streaming is additive through the optional `pipeline.StreamingClient`
-interface, so existing providers do not need to change.
+interface, so existing providers do not need to change. History budgeting,
+OpenAI-compatible providers, observability extensions, code compression, and
+chunk dedupe are additive post-v1 capabilities covered by Delivery 2.
 
 ## Next
 

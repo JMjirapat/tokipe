@@ -236,18 +236,21 @@
 
     .flow-wrap {
       padding: 30px;
-      overflow: hidden;
+      overflow-x: auto;
+      overflow-y: hidden;
+      overscroll-behavior-inline: contain;
       border: 1px solid var(--line);
       border-radius: var(--radius);
       background: var(--surface-solid);
       box-shadow: var(--shadow);
+      scrollbar-gutter: stable;
     }
 
     .flow {
       display: grid;
-      grid-template-columns: repeat(9, minmax(112px, 1fr));
+      grid-template-columns: repeat(11, minmax(112px, 1fr));
       gap: 10px;
-      min-width: 1040px;
+      min-width: 1320px;
       align-items: stretch;
     }
 
@@ -516,7 +519,8 @@
       .metrics, .grid, .two-col, .failure-list { grid-template-columns: 1fr; }
       .metric { min-height: 118px; }
       section { padding: 48px 0; }
-      .flow-wrap { padding: 18px; }
+      .flow-wrap { padding: 18px; scroll-snap-type: x proximity; }
+      .step { scroll-snap-align: start; }
       .panel, .callout { padding: 24px; }
       .row { grid-template-columns: 1fr; gap: 3px; }
       .cta { padding: 38px 22px; }
@@ -554,7 +558,7 @@
   <main id="top">
     <div class="shell hero">
       <div>
-        <p class="eyebrow">High-level system summary · v1</p>
+        <p class="eyebrow">High-level system summary · v1 core + Delivery 2</p>
         <h1>Spend model tokens where they <span>matter.</span></h1>
         <p class="lede">
           agentkit is an ordered Go pipeline that removes avoidable LLM work,
@@ -581,8 +585,8 @@
         <span>third-party dependencies in the root Go module</span>
       </article>
       <article class="metric">
-        <b>8</b>
-        <span>ordered decisions from deterministic handling to model send</span>
+        <b>9</b>
+        <span>ordered decisions before the final model boundary</span>
       </article>
       <article class="metric">
         <b>opt-in</b>
@@ -623,33 +627,43 @@
             </div>
             <div class="step">
               <span class="num">04</span>
-              <b>Compress</b>
-              <small>Remove representational noise from retrieved chunks.</small>
+              <b>Dedupe</b>
+              <small>Drop exact normalized duplicate evidence.</small>
             </div>
             <div class="step">
               <span class="num">05</span>
+              <b>Compress</b>
+              <small>Shrink JSON, prose, or complete Go source safely.</small>
+            </div>
+            <div class="step">
+              <span class="num">06</span>
+              <b>History</b>
+              <small>Fit messages and chunks to the turn budget.</small>
+            </div>
+            <div class="step">
+              <span class="num">07</span>
               <b>Custom</b>
               <small>Run caller-specific request shaping.</small>
             </div>
             <div class="step">
-              <span class="num">06</span>
+              <span class="num">08</span>
               <b>Align</b>
               <small>Place stable content first and safe breakpoints.</small>
             </div>
             <div class="step">
-              <span class="num">07</span>
+              <span class="num">09</span>
               <b>Route</b>
               <small>Score the final prompt; select the cheapest fit.</small>
             </div>
             <div class="step final">
-              <span class="num">08</span>
+              <span class="num">10</span>
               <b>Model send</b>
-              <small>Call an API, CLI, or custom backend.</small>
+              <small>Call or stream from an API, CLI, or custom backend.</small>
             </div>
             <div class="step final">
-              <span class="num">09</span>
+              <span class="num">11</span>
               <b>Response</b>
-              <small>Return content, model, short-circuit, and usage.</small>
+              <small>Return a response or incremental deltas.</small>
             </div>
           </div>
           <div class="legend">
@@ -665,7 +679,7 @@
         <div class="section-head">
           <div class="kicker">02 · Capabilities</div>
           <div>
-            <h2>Nine levers, one stable integration.</h2>
+            <h2>Composable levers, one stable integration.</h2>
             <p>
               Applications keep building the same `pipeline.Request`. Cost and
               latency policy lives in composable options, not scattered
@@ -691,9 +705,14 @@
             <p>RAG runs only when the request opts in, adding top-K evidence through small embedder and store interfaces.</p>
           </article>
           <article class="card">
+            <div class="card-icon">=</div>
+            <h3>Remove duplicate evidence</h3>
+            <p>Exact normalized duplicates are dropped safely; lossy near-matching requires an explicit lower threshold.</p>
+          </article>
+          <article class="card">
             <div class="card-icon">≪</div>
             <h3>Shrink safely</h3>
-            <p>Compression minifies JSON and normalizes prose whitespace without semantic summarization.</p>
+            <p>Compression minifies JSON, normalizes prose, and can parse complete Go files with directive-aware safeguards.</p>
           </article>
           <article class="card">
             <div class="card-icon">▰</div>
@@ -716,9 +735,14 @@
             <p>Protected references keep large files out of prompts until the application explicitly resolves them.</p>
           </article>
           <article class="card">
+            <div class="card-icon">⌁</div>
+            <h3>Bound growing context</h3>
+            <p>Per-turn budgets trim middle history and lower-ranked chunks while protecting static and newest content.</p>
+          </article>
+          <article class="card">
             <div class="card-icon">◎</div>
-            <h3>Observe and budget</h3>
-            <p>Optional counters expose decisions, while caller-owned turn policy sets context budgets by task type.</p>
+            <h3>Observe degradation</h3>
+            <p>Counters, latency histograms, context gauges, and stable degradation reasons make fail-open behavior visible.</p>
           </article>
         </div>
       </div>
@@ -807,19 +831,19 @@
             <p>Owns ordering, request flow, safe defaults, and stable interfaces.</p>
             <ul>
               <li>pipeline and config</li>
-              <li>preprocess and compression</li>
-              <li>cache alignment and routing</li>
-              <li>metrics contracts</li>
+              <li>preprocess, dedupe, and compression</li>
+              <li>history, cache alignment, and routing</li>
+              <li>streaming and metrics contracts</li>
             </ul>
           </div>
           <div class="adapter">
             <h3>Adapters</h3>
             <p>Translate small interfaces into real infrastructure and model calls.</p>
             <ul>
-              <li>Anthropic over net/http</li>
+              <li>Anthropic and OpenAI-compatible APIs</li>
               <li>Claude, Codex, OpenCode CLIs</li>
-              <li>pgvector nested module</li>
-              <li>Redis nested module</li>
+              <li>pgvector and Redis nested modules</li>
+              <li>OpenTelemetry nested module</li>
             </ul>
           </div>
           <div class="caller">
@@ -870,12 +894,13 @@
         <h2>Start pass-through. Add one measurable optimization at a time.</h2>
         <p>
           The quickest safe path is baseline → metrics → deterministic rules →
-          tool cache → retrieval/compression → cache alignment → routing.
+          tool cache → retrieval/dedupe/compression → history budget → cache
+          alignment → routing → streaming.
         </p>
         <div class="buttons">
           <a class="button" href="../README.md">Quick start</a>
           <a class="button secondary" href="../MANUAL.md">Open user manual</a>
-          <a class="button secondary" href="./QA-REPORT.md">Read QA report</a>
+          <a class="button secondary" href="./QA-REPORT-2.md">Read current QA report</a>
         </div>
       </div>
     </section>
@@ -884,7 +909,7 @@
   <footer>
     <div class="shell">
       <span>agentkit · High-level system summary</span>
-      <span>Generated from the v1 implementation · 2026-07-26</span>
+      <span>Delivery 2 · QA Round 4 GO · 2026-07-27</span>
     </div>
   </footer>
 </body>

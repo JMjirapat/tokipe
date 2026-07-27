@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -664,5 +665,36 @@ func TestAbandoningAStreamDoesNotWaitForTheChild(t *testing.T) {
 		}
 	case <-time.After(8 * time.Second):
 		t.Fatal("abandoning a stream blocked; the subprocess is not being cancelled first")
+	}
+}
+
+// A shell is the load-bearing part of this regression: killing the shell does
+// not by itself close stdout when a descendant inherited the pipe. The direct
+// helper-process test above cannot reproduce that process-tree behaviour.
+func TestAbandoningShellStreamDoesNotWaitForDescendant(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skipf("sh unavailable: %v", err)
+	}
+	c := mustClient(t, cli.Config{
+		Command:     sh,
+		Args:        []string{"-c", "printf 'first\\n'; sleep 2; printf 'second\\n'"},
+		StreamParse: cli.LineStreamParser(),
+		Timeout:     5 * time.Second,
+	})
+	seq, err := c.SendStream(context.Background(), &pipeline.Request{Query: "q"})
+	if err != nil {
+		t.Fatalf("SendStream: %v", err)
+	}
+
+	start := time.Now()
+	for range seq {
+		break
+	}
+	if took := time.Since(start); took > 750*time.Millisecond {
+		t.Fatalf("abandoning blocked for %v waiting for a descendant", took)
 	}
 }

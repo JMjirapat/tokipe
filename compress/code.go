@@ -209,6 +209,16 @@ func keepsDirective(g *ast.CommentGroup) bool {
 // go/printer reattaches floating comments by source position, and getting that
 // subtly wrong on a build constraint is worse than saving nothing.
 func hasDirectives(file *ast.File) bool {
+	// Any import of the pseudo-package C makes this a cgo file. Its preamble is
+	// defined structurally as the comment immediately before import "C"; it
+	// may contain arbitrary C declarations without a #include or #cgo marker.
+	// Refusing the whole cgo file is conservative and avoids guessing which
+	// comments the cgo tool treats as source.
+	for _, imp := range file.Imports {
+		if imp.Path != nil && imp.Path.Value == `"C"` {
+			return true
+		}
+	}
 	for _, g := range file.Comments {
 		if keepsDirective(g) {
 			return true

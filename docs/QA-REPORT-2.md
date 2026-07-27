@@ -1,43 +1,361 @@
 # QA Verification Report — tokipe Delivery 2
 
 **Review date:** 2026-07-27  
-**Revision:** `093fd6c`  
+**Revisions:** Round 1 `093fd6c`; Round 2 `9176327`
+
 **Scope:** [DELIVERY-2.md](DELIVERY-2.md), ROADMAP Phases 5–8 and the module-path rename  
 **Procedure:** [QA-BRIEF.md](QA-BRIEF.md)  
 **Baseline:** [DELIVERY-1.md](DELIVERY-1.md)  
-**Current result:** **NO-GO for accepting Delivery 2**
+**Current result:** **GO after QA Round 4**
 
 ## 1. Executive summary
 
-The documented baseline is substantially healthy. The root module builds and
-vets, passes its race suite across 29 packages, builds without CGo, and
-reproduces both benchmark results: 57.1% on the v1 workload and 54.6% over the
-100-turn history workload. All three nested modules pass their race suites, all
-six examples complete, the broken-dependencies observability example keeps
-40/40 turns alive, and every reported package coverage value is reproducible.
+The Round 2 revision resolves both release blockers and four of the seven Major
+findings from Round 1. The exact CI dependency command now passes,
+caller-supplied token counters are contained throughout trimming, history
+budgeting matches the provider-visible request, chunk-only requests can be
+trimmed, ordinary cache failures are observable, and the OpenTelemetry module
+builds locally with Go 1.23.
 
-Independent adversarial testing nevertheless found two release blockers:
+At the Round 2 QA checkpoint, three Major findings remained open. Abandoning a
+shell-backed CLI stream could still wait for a descendant that inherited
+stdout; the code-compression guard missed valid cgo preambles without
+`#include` or `#cgo`; and default deduplication could discard a long near-copy
+whose decisive difference was nonnumeric.
 
-1. the CI check cited as enforcement for the zero-third-party-dependency claim
-   was not updated for the module rename and fails on every internal package;
-2. a caller-supplied `budget.TokenCounter` panic can escape `Pipeline.Run`
-   during trimming, breaking the central fail-open guarantee.
+Round 2 also introduced one release blocker: the coverage table in
+Delivery §2 was carried forward unchanged even though the implementation and
+tests changed. Six listed values no longer reproduce, so the evidence table is
+false under the QA brief's explicit Blocker rule.
 
-Seven additional plausible-input defects affect history budgeting, streaming
-cleanup, observability, code compression, chunk deduplication, and the stated
-minimum Go version.
+QA Round 3 independently reproduced the refreshed evidence and verified the
+coverage, CLI process-tree, and cgo remediations. At that checkpoint, the
+dedupe remediation remained incomplete: a threshold of 1.0 over a *set* of
+shingles is not an exact normalized-sequence comparison. Distinct periodic
+sequences can have identical shingle sets and the second chunk is still
+discarded.
 
-| Severity | Count |
+The implementor follow-up in §5 changes the threshold-1 path to compare the
+complete normalized word sequence directly. Its regression and full local
+verification pass. QA Round 4 exercised periodic rotations, normalized
+formatting equivalence, the complete external repro suite, and the release
+evidence; no current finding remains.
+
+The documented baseline remains healthy. The root module builds and vets,
+passes its race suite across 29 packages, builds without CGo, and reproduces
+both benchmark results: 57.1% on the v1 workload and 54.6% over the 100-turn
+history workload. All three nested modules pass their race suites with
+`GOTOOLCHAIN=local`, all six examples complete, and the broken-dependencies
+observability example keeps 40/40 turns alive.
+
+| Round 2 QA severity | Count |
 |---|---:|
-| Blocker | 2 |
-| Major | 7 |
+| Blocker | 1 |
+| Major | 3 |
+| Minor | 0 |
+| Note | 0 |
+
+| Current Round 3 severity | Count |
+|---|---:|
+| Blocker | 0 |
+| Major | 1 |
+| Minor | 0 |
+| Note | 0 |
+
+| Current Round 4 severity | Count |
+|---|---:|
+| Blocker | 0 |
+| Major | 0 |
 | Minor | 0 |
 | Note | 0 |
 
 The external reproductions were placed in `/tmp/tokipe-qa2`; no production
 source code was changed during this review.
 
-## 2. Blockers
+## 2. Round 2 re-verification
+
+| Round 1 finding | Round 2 result |
+|---|---|
+| B1 — renamed-module CI guard | **Resolved** — the exact CI command returns no third-party dependencies |
+| B2 — `TokenCounter` panic escapes | **Resolved** — the external panic reproduction reaches the model |
+| M1 — duplicated current turn is over-counted | **Resolved** |
+| M2 — chunk-only over-budget request is not trimmed | **Resolved** |
+| M3 — abandoned CLI stream waits for the child | **Open** — see 2.2 |
+| M4 — ordinary cache `Get` error is invisible | **Resolved** |
+| M5 — semantic Go comments are removed | **Open** — directives pass, but valid cgo remains unsafe; see 2.3 |
+| M6 — decisive one-token difference is deduplicated | **Open** — numeric values pass, but nonnumeric decisions remain unsafe; see 2.4 |
+| M7 — OTel contradicts Go 1.23 minimum | **Resolved** — nested race suite passes with `GOTOOLCHAIN=local` |
+
+### 2.1 [Blocker] The current coverage evidence no longer reproduces
+
+**File:** `docs/DELIVERY-2.md`, §2 coverage table
+
+**Claim:** The listed percentages are the coverage after the Round 2 delivery.
+
+**Reality:** Adding implementation branches and regression tests changed six
+listed package values, but the table was not refreshed.
+
+**Reproduction:**
+
+```bash
+go test -count=1 -cover ./...
+```
+
+| Package | Delivery claim | Round 2 observed |
+|---|---:|---:|
+| `budget` | 96.0% | 96.1% |
+| `compress` | 96.4% | 94.1% |
+| `history` | 94.7% | 94.4% |
+| `preprocess` | 98.9% | 96.7% |
+| `providers/cli` | 90.5% | 90.3% |
+| `toolcache` | 93.0% | 93.2% |
+
+**Impact:** Delivery §2 contains evidence that cannot be reproduced at the
+revision it describes. The QA brief explicitly classifies a false evidence
+claim as a Blocker. This does not mean the test suite fails; it means the
+handover evidence is stale and several newly added branches reduced measured
+coverage.
+
+### 2.2 [Major] Abandoning a shell-backed CLI stream still waits for a descendant
+
+**File:** `providers/cli/stream.go:91-116`
+
+**Claim:** Cancelling before reaping makes an abandoned stream return
+immediately.
+
+**Reality:** `exec.CommandContext` kills the direct process, but a descendant
+such as `sleep` can retain the inherited stdout pipe. `reap` drains that pipe
+before `Wait`, so it remains blocked until the descendant exits. The new
+in-repository test uses the test binary directly and does not exercise a
+process tree.
+
+**Reproduction:**
+
+```bash
+cd /tmp/tokipe-qa2
+go test -count=1 -run TestAbandoningCLIStreamReturnsPromptly -v
+```
+
+The command is `sh -c "printf ...; sleep 2; printf ..."`. Observed: breaking
+after the first delta still takes approximately 2.01 seconds rather than less
+than 500 ms.
+
+**Impact:** Shell scripts and wrapper CLIs can still retain a request goroutine
+and delay disconnect cleanup until their descendants exit or the timeout is
+reached.
+
+### 2.3 [Major] The cgo guard recognizes markers, not the cgo preamble relationship
+
+**File:** `compress/code.go:159-217`
+
+**Claim:** Directive-bearing files and cgo preambles are refused outright.
+
+**Reality:** A block comment is classified as cgo only when its text contains
+`#include` or `#cgo`. A valid cgo preamble may instead contain ordinary C
+declarations or definitions immediately before `import "C"`. Such a file is
+still claimed by `CanHandle`, and compression removes the C source while
+producing syntactically valid Go.
+
+**Reproduction:**
+
+```bash
+cd /tmp/tokipe-qa2
+go test -count=1 -run TestCodeCompressorRefusesArbitraryCgoPreamble -v
+```
+
+Observed: `CanHandle` returns true for a preamble containing
+`int answer(void) { return 42; }`.
+
+**Impact:** Compression can silently change or break a valid cgo file. The
+guard must identify the comment group attached to `import "C"`, not infer cgo
+from two possible strings inside the comment.
+
+### 2.4 [Major] Nonnumeric decisive differences still pass the dedupe safety guard
+
+**File:** `compress/dedupe.go:150-168`, `221-250`
+
+**Claim:** Default dedupe does not discard a near-copy with a meaningful
+difference.
+
+**Reality:** The new fact-agreement guard extracts only words containing a
+digit. Two sufficiently long documents with identical numeric facts but an
+opposite final decision such as `allow` versus `deny` still exceed the 0.95
+Jaccard threshold and the second chunk is discarded.
+
+**Reproduction:**
+
+```bash
+cd /tmp/tokipe-qa2
+go test -count=1 -run TestDedupeKeepsCriticalNonnumericDifference -v
+```
+
+Observed: only the `allow` policy remains; the otherwise identical `deny`
+policy is removed.
+
+**Impact:** Retrieval can silently lose contradictory evidence and make the
+answer depend on chunk ordering. A conservative default needs an exact-content
+rule, a stronger difference guard, or explicit opt-in to lossy near-deduping.
+
+## 3. Implementor follow-up after Round 2
+
+The working tree after base revision `9176327` contains these remediations:
+
+| Round 2 finding | Implemented remediation | Implementor verification |
+|---|---|---|
+| Stale coverage evidence | Recomputed after the final implementation and updated Delivery §2 and README inventory | 393 Test/Example functions; final table reproduced |
+| Shell-descendant stream wait | Unix process-group termination, explicit stdout close before reap, and a 100 ms `exec.Cmd.WaitDelay` for inherited stdout/stderr pipes | Process-tree regression passed 10 consecutive runs; original external repro passed |
+| Unrecognized cgo preamble | Refuse every parsed file containing `import "C"` | Arbitrary-C-preamble regression and original directive repro passed |
+| Nonnumeric dedupe conflict | Default threshold changed to 1.0; lower lossy thresholds remain explicit opt-in | `allow`/`deny`, numeric-conflict, near-formatting, and exact-copy tests passed |
+
+The following also passed after implementation:
+
+```bash
+go build ./...
+go vet ./...
+go test -race -count=1 ./...
+CGO_ENABLED=0 go build ./...
+GOOS=windows GOARCH=amd64 go test -c ./providers/cli
+
+(cd stores/pgvector && GOTOOLCHAIN=local go test -race -count=1 ./...)
+(cd toolcache/redis && GOTOOLCHAIN=local go test -race -count=1 ./...)
+(cd metrics/otel && GOTOOLCHAIN=local go test -race -count=1 ./...)
+
+go run ./benchmarks
+go run ./examples/<all-six>
+go run ./examples/observability -break
+(cd /tmp/tokipe-qa2 && go test -count=1 ./...)
+```
+
+Final implementor-observed coverage values:
+
+| Package | Coverage | Package | Coverage |
+|---|---:|---|---:|
+| `agentkit` | 100.0% | `router` | 100.0% |
+| `internal/safe` | 100.0% | `preprocess` | 96.7% |
+| `rag` | 97.9% | `cache` | 97.2% |
+| `stores/mock` | 96.7% | `budget` | 96.1% |
+| `compress` | 94.2% | `history` | 94.4% |
+| `providers/anthropic` | 93.2% | `toolcache` | 93.2% |
+| `metrics` | 91.1% | `providers/cli` | 90.0% |
+| `pipeline` | 90.4% | `config` | 89.7% |
+| `providers/openai` | 88.9% | `lazyload` | 88.1% |
+
+## 4. QA Round 3 re-verification
+
+Three of the four Round 2 follow-up findings are resolved:
+
+| Finding | QA Round 3 result |
+|---|---|
+| Coverage evidence | **Resolved** — all Delivery §2 percentages, 393 test functions, and 29 root packages reproduce |
+| Shell-descendant stream wait | **Resolved** — the original shell repro passes and the in-repository process-tree test passed 20 consecutive runs |
+| Arbitrary cgo preamble | **Resolved** — both compiler-directive and ordinary-C-preamble repros pass |
+| Dedupe exact-match default | **Open** — distinct normalized sequences can share the same shingle set |
+
+### [Major] Default dedupe still drops distinct normalized sequences
+
+**File:** `compress/dedupe.go:56-63`, `192-202`
+
+**Claim:** `DELIVERY-2.md` §0.1 and the implementation comment describe the
+default threshold of 1.0 as a normalized exact match, with lossy matching
+requiring explicit opt-in.
+
+**Reality:** Jaccard compares sets of four-word shingles. A set discards
+multiplicity and global sequence position. Two different periodic sequences
+can therefore produce identical shingle sets, score 1.0, pass the fact-token
+guard, and be treated as duplicates.
+
+**Reproduction:**
+
+```bash
+cd /tmp/tokipe-qa2
+go test -count=1 -run TestDefaultDedupeRequiresExactNormalizedSequence -v
+```
+
+Observed: the two distinct policies below collapse to one chunk:
+
+```text
+allow users deny admins allow users deny admins ...
+deny admins allow users deny admins allow users ...
+```
+
+**Impact:** Default configuration can still discard distinct retrieved
+evidence despite documenting that lossy near-deduplication is opt-in. This is
+wrong behavior on plausible repetitive policy, log, or generated content.
+
+The rest of the release-candidate verification passed:
+
+```text
+root build, vet, race suite, and CGO-disabled build
+three nested race suites with GOTOOLCHAIN=local
+Windows providers/cli compile check
+all nine earlier external reproductions
+dependency guard, 393-function inventory, and 29-package inventory
+all Delivery coverage percentages
+57.1% and 54.6% benchmark results
+all six examples; observability fail-open 40/40 with 80 degradations
+```
+
+## 5. Implementor follow-up after QA Round 3
+
+The Round 3 reproduction is now an in-repository regression test. For threshold
+1.0, `DedupeStage` uses exact slice equality over `normalizeWords` output.
+Thresholds below 1 retain Jaccard and the value-token guard as explicit lossy
+behavior.
+
+Implementor verification passed:
+
+```text
+Round 3 exact-sequence regression
+all earlier external QA reproductions
+dedupe exact-copy, formatting-only, numeric-conflict, and custom-threshold tests
+root and all three nested race suites
+CGO-disabled build and Windows providers/cli compile
+dependency guard, 394-function inventory, and 29 root packages
+all examples and observability fail-open
+benchmarks: 57.1% and 54.6%
+```
+
+Final observed `compress` coverage is 93.3%; the other Delivery values are
+unchanged.
+
+## 6. QA Round 4 re-verification
+
+**Result: GO for the current working tree**
+
+The Round 3 defect is resolved. Default dedupe now compares the complete
+normalized word sequence, while lower thresholds retain explicitly lossy
+Jaccard behavior.
+
+Adversarial verification passed:
+
+- the original Round 3 shingle-set collision;
+- every periodic rotation for periods 2 through 8;
+- 100 consecutive runs of the in-repository exact-sequence regression;
+- formatting and case variants with the same normalized sequence still
+  deduplicate;
+- numeric and nonnumeric policy differences remain separate;
+- exact copies and explicitly configured lower thresholds retain their intended
+  behavior;
+- all earlier external QA reproductions.
+
+Release evidence also passed:
+
+```text
+root build, vet, race suite, and CGO-disabled build
+three nested race suites with GOTOOLCHAIN=local
+Windows providers/cli compile check
+dependency guard: no third-party core dependencies
+394 Test/Example functions and 29 root packages
+all Delivery coverage values, including compress 93.3%
+benchmarks: 57.1% and 54.6%
+all six examples
+observability fail-open: 40/40 turns and 80 degradations
+```
+
+No production code was changed during QA Round 4. Additional property checks
+remain outside the repository under `/tmp/tokipe-qa2`.
+
+## 7. Round 1 blockers (resolved in Round 2)
 
 ### [Blocker] The CI enforcement cited by Delivery §2 fails after the module rename
 
@@ -99,7 +417,7 @@ token counter panicked during trimming
 turn. This directly breaks the load-bearing fail-open guarantee and is a
 Blocker under the QA brief.
 
-## 3. Major findings
+## 8. Round 1 Major findings
 
 ### [Major] A duplicated current turn is counted twice and causes unnecessary history loss
 
@@ -315,11 +633,11 @@ go: go.mod requires go >= 1.25.0 (running go 1.23.3; GOTOOLCHAIN=local)
 adapter, and CI may silently test it with a downloaded toolchain different from
 the configured version.
 
-## 4. Verification results
+## 9. Round 2 QA verification results
 
 ### Baseline and nested modules
 
-The following passed on revision `093fd6c`:
+The following passed again on Round 2 revision `9176327`:
 
 ```bash
 go build ./...
@@ -327,13 +645,13 @@ go vet ./...
 go test -race -count=1 ./...
 CGO_ENABLED=0 go build ./...
 
-(cd stores/pgvector && go test -race -count=1 ./...)
-(cd toolcache/redis && go test -race -count=1 ./...)
-(cd metrics/otel && go test -race -count=1 ./...)
+(cd stores/pgvector && GOTOOLCHAIN=local go test -race -count=1 ./...)
+(cd toolcache/redis && GOTOOLCHAIN=local go test -race -count=1 ./...)
+(cd metrics/otel && GOTOOLCHAIN=local go test -race -count=1 ./...)
 ```
 
 The root contains 29 packages. README inventory markers also reproduce exactly:
-377 Test/Example functions and 29 root-module packages.
+390 Test/Example functions and 29 root-module packages.
 
 ### Benchmark
 
@@ -371,22 +689,23 @@ observability
 ```
 
 `go run ./examples/observability -break` preserved 40/40 turns and recorded the
-documented 80 degradation events. Finding 3.4 shows that this demonstration
-does not cover ordinary cache errors.
+documented 80 degradation events. The direct ordinary-cache-error regression
+also passed.
 
 ### Coverage
 
-Every Delivery §2 coverage number reproduced exactly:
+The current Round 2 values are below. Six differ from Delivery §2, as recorded
+in Blocker 2.1:
 
 | Package | Coverage | Package | Coverage |
 |---|---:|---|---:|
 | `agentkit` | 100.0% | `router` | 100.0% |
-| `internal/safe` | 100.0% | `preprocess` | 98.9% |
+| `internal/safe` | 100.0% | `preprocess` | 96.7% |
 | `rag` | 97.9% | `cache` | 97.2% |
-| `stores/mock` | 96.7% | `compress` | 96.4% |
-| `budget` | 96.0% | `history` | 94.7% |
-| `providers/anthropic` | 93.2% | `toolcache` | 93.0% |
-| `metrics` | 91.1% | `providers/cli` | 90.5% |
+| `stores/mock` | 96.7% | `compress` | 94.1% |
+| `budget` | 96.1% | `history` | 94.4% |
+| `providers/anthropic` | 93.2% | `toolcache` | 93.2% |
+| `metrics` | 91.1% | `providers/cli` | 90.3% |
 | `pipeline` | 90.4% | `config` | 89.7% |
 | `providers/openai` | 88.9% | `lazyload` | 88.1% |
 
@@ -412,34 +731,19 @@ Every Delivery §2 coverage number reproduced exactly:
   `v1.0.0` points to the renamed module, as Delivery §4 describes.
 - OTel degradation attributes use only stage and reason; the error string does
   not become a metric label.
-- The extension-matrix exemptions that are present are backed by the named
-  tests. The matrix's missing new interfaces are covered by Blocker 2.
+- The extension matrix now includes `budget.TokenCounter` and
+  `history.Summarizer`; both panic-contract cases passed.
 
 The real-credential/live-service checks listed in Delivery §3 were not
 re-reported as defects. Live CLI streaming was not re-run because it consumes
 subscription quota; mock/protocol coverage and the non-live example passed.
 
-## 5. Release decision
+## 10. Release decision
 
-**Current decision: NO-GO for Delivery 2**
+**Current decision: GO for Delivery 2**
 
-At minimum, GO requires:
+This GO applies to the exact current working tree. Commit and tag that state
+without additional code changes; otherwise rerun the proportional checks.
 
-1. update the dependency CI guard for the renamed module and run the exact job;
-2. contain every `TokenCounter` call and add it, plus `Summarizer`, to the
-   extension completeness guard;
-3. make request-cost accounting match the provider-visible current-turn
-   representation and allow chunk trimming without a droppable history message;
-4. cancel an abandoned CLI subprocess before waiting for it;
-5. report ordinary cache backend errors through the degradation sink and audit
-   the other silent fail-open sites;
-6. preserve semantic Go directives/cgo preambles or refuse those files;
-7. prevent lexical dedupe from discarding a near-copy with a meaningful
-   difference, or require an explicitly less-conservative opt-in;
-8. restore Go 1.23 compatibility for `metrics/otel` or update the documented
-   minimum and CI toolchain deliberately;
-9. re-run root and nested race suites, examples, benchmarks, evidence commands,
-   and every external reproduction above.
-
-The known gaps in Delivery §3 remain release-owner risks and are not part of
-this NO-GO.
+The known live-service and real-world integration gaps in Delivery §3 remain
+release-owner risks and are not represented as verified by this GO.

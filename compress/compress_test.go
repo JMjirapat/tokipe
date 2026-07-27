@@ -577,6 +577,29 @@ func TestCodeCompressor_StillCompressesOrdinaryComments(t *testing.T) {
 	}
 }
 
+func TestCodeCompressor_RefusesArbitraryCgoPreamble(t *testing.T) {
+	src := `package sample
+
+/*
+int answer(void) { return 42; }
+*/
+import "C"
+
+func Answer() int { return int(C.answer()) }
+`
+	c := NewCodeCompressor(WithMinLines(0))
+	if c.CanHandle(src) {
+		t.Fatal("a cgo file with an ordinary C preamble must not be claimed")
+	}
+	got, err := c.Compress(src)
+	if err != nil {
+		t.Fatalf("Compress: %v", err)
+	}
+	if got != src {
+		t.Errorf("cgo source was altered:\n%s", got)
+	}
+}
+
 func TestIsDirectiveClassification(t *testing.T) {
 	cases := map[string]bool{
 		"//go:build linux":            true,

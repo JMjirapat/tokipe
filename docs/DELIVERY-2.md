@@ -2,8 +2,8 @@
 
 **Date:** 2026-07-27
 **Scope:** ROADMAP Phases 5–8, plus the module-path rename
-**Status:** QA round 1 complete; all nine findings resolved, awaiting re-verification
-**Range:** `v1.0.0-agentkit-path..HEAD` — six commits
+**Status:** QA Round 4 **GO** for the current working tree
+**Range:** `v1.0.0-agentkit-path..HEAD`
 **Not yet:** pushed to a remote, or run against a real Anthropic endpoint
 
 Delivery 1 ([DELIVERY-1.md](DELIVERY-1.md)) covered the original spec, Phases
@@ -51,6 +51,33 @@ the guarded call count for the request and panics on the first call after it.
 Every fix in this round was negative-tested the same way — reverted, confirmed
 failing, restored.
 
+## 0.1 QA Round 2 implementor follow-up submitted for re-verification
+
+Round 2 found one stale-evidence Blocker and three remaining Major defects.
+The implementor submitted these four remediations:
+
+| Finding | Implementation |
+|---|---|
+| Coverage evidence was stale | Recomputed after the Round 2 code and tests; Delivery and README reported 393 test functions and that checkpoint's package percentages |
+| A shell descendant could retain stream pipes after cancellation | CLI subprocesses use their own process group on Unix, abandoned streams terminate the group and close stdout before reaping, and `WaitDelay` bounds inherited stdout/stderr pipes |
+| Ordinary C code in a cgo preamble was not recognized | `CodeCompressor` refuses every AST containing `import "C"` rather than guessing from comment text |
+| `allow` versus `deny` could still be deduplicated | The default threshold is now 1.0 (normalized exact match); lossy near-deduplication requires an explicit lower threshold |
+
+The three Round 2 external reproductions pass, including the shell process-tree
+case. Root and nested race suites, benchmarks, all examples, the exact CI
+dependency command, and a Windows compile check also pass. This is implementor
+verification, not independent QA sign-off.
+
+QA Round 3 verified the coverage, CLI process-tree, and cgo fixes. It rejected
+the dedupe fix: Jaccard 1.0 over a set of shingles is not an exact normalized
+sequence comparison, so distinct periodic content can still be discarded. See
+[QA-REPORT-2.md §4](QA-REPORT-2.md#4-qa-round-3-re-verification).
+
+The implementor response now compares the complete normalized word sequence
+when the threshold is 1.0. Jaccard is used only for explicitly configured
+thresholds below 1. The Round 3 reproduction and all earlier dedupe tests pass;
+QA Round 4 verified the fix and issued GO for the current working tree.
+
 ---
 
 ## 1. What is being delivered
@@ -86,7 +113,7 @@ CGO_ENABLED=0 go build ./...
 
 | Claim | Command | Result |
 |---|---|---|
-| Root module builds, vets and passes under `-race` | `go test -race -count=1 ./...` | 0 failures, 29 packages, 390 test functions |
+| Root module builds, vets and passes under `-race` | `go test -race -count=1 ./...` | 0 failures, 29 packages, 394 test functions |
 | No CGo required | `CGO_ENABLED=0 go build ./...` | clean |
 | Core still has zero third-party dependencies | the exact CI command, re-run verbatim | none |
 | Three nested modules build and pass, on Go 1.23 | `cd <mod> && GOTOOLCHAIN=local go test -race ./...` | pgvector 14, redis 7, otel 7 |
@@ -100,14 +127,14 @@ Coverage after this delivery:
 
 | Package | Cov | | Package | Cov |
 |---|---|---|---|---|
-| `router` | 100.0% | | `history` | 94.7% |
+| `router` | 100.0% | | `history` | 94.4% |
 | `agentkit` (root) | 100.0% | | `providers/anthropic` | 93.2% |
-| `internal/safe` | 100.0% | | `toolcache` | 93.0% |
-| `preprocess` | 98.9% | | `metrics` | 91.1% |
-| `rag` | 97.9% | | `providers/cli` | 90.5% |
+| `internal/safe` | 100.0% | | `toolcache` | 93.2% |
+| `preprocess` | 96.7% | | `metrics` | 91.1% |
+| `rag` | 97.9% | | `providers/cli` | 90.0% |
 | `cache` | 97.2% | | `pipeline` | 90.4% |
-| `compress` | 96.4% | | `config` | 89.7% |
-| `budget` | 96.0% | | `providers/openai` | 88.9% |
+| `compress` | 93.3% | | `config` | 89.7% |
+| `budget` | 96.1% | | `providers/openai` | 88.9% |
 | `stores/mock` | 96.7% | | `lazyload` | 88.1% |
 
 Two packages were below standard when this document was first drafted and were
@@ -185,8 +212,10 @@ found by tests written specifically to doubt a claim rather than to confirm it.
 ## 6. Handover
 
 - [x] Independent QA round 1 — see [QA-REPORT-2.md](QA-REPORT-2.md)
-- [ ] QA round 2: re-verify the nine fixes against the GO criteria in
-      QA-REPORT-2 §5
+- [x] QA round 2 completed; implementor submitted four follow-up fixes
+- [x] QA round 3 independent re-verification — **NO-GO**, one Major remains
+- [x] Default dedupe now compares normalized sequences exactly
+- [x] QA round 4 re-verification — **GO** for the current working tree
 - [ ] Decide whether the root package should be renamed `tokipe`
 - [ ] Push to `github.com/JMjirapat/tokipe` (remote configured, nothing pushed)
 - [ ] Run the Anthropic prompt-caching test once API credit exists

@@ -19,6 +19,29 @@ if err != nil {
 kit := agentkit.New(client, config.WithCacheAlignment())
 ```
 
+The client implements both `pipeline.ModelClient` and
+`pipeline.StreamingClient`. Use `kit.Run` for a completed response or
+`kit.RunStream` for incremental SSE text and final usage.
+
+For exact history-budget accounting, reuse the same client through the token
+counter:
+
+```go
+counter, err := anthropic.NewTokenCounter(client)
+if err != nil {
+    return err
+}
+
+kit := agentkit.New(client,
+    config.WithHistoryBudget(budget.DefaultPolicy(), counter),
+    config.WithCacheAlignment(),
+)
+```
+
+The counter calls `/v1/messages/count_tokens` and memoizes repeated string
+counts. It adds a network round trip but is more reliable than the default
+character estimator for hard context limits.
+
 ## What it does with `CacheBreakpoints`
 
 `Request.CacheBreakpoints` become `cache_control: {"type": "ephemeral"}` markers

@@ -9,6 +9,7 @@ import (
 	"iter"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/JMjirapat/tokipe/pipeline"
 )
@@ -19,6 +20,11 @@ var _ pipeline.StreamingClient = (*Client)(nil)
 // line legitimately (a whole file, a stack trace), so this is generous — but
 // unbounded growth on a subprocess's say-so is still a memory bug.
 const maxStreamLine = 4 << 20
+
+// processIOWaitDelay bounds exec.Cmd.Wait when a subprocess exits but one of
+// its descendants still holds an inherited stdout/stderr pipe. Without this,
+// os/exec waits for EOF indefinitely even after the direct process is killed.
+const processIOWaitDelay = 100 * time.Millisecond
 
 // StreamParser converts one line of a CLI's stdout into deltas.
 //
@@ -53,6 +59,8 @@ func (c *Client) SendStream(ctx context.Context, req *pipeline.Request) (iter.Se
 
 	prompt := c.cfg.Render(req)
 	cmd := exec.CommandContext(streamCtx, c.cfg.Command, c.argv(prompt)...)
+	configureProcessTree(cmd)
+	cmd.WaitDelay = processIOWaitDelay
 	cmd.Dir = c.cfg.Dir
 	cmd.Env = c.cfg.Env
 	if c.cfg.PromptMode == PromptViaStdin {
@@ -110,6 +118,12 @@ func (c *Client) streamLines(
 		abandoned := true
 		defer func() {
 			if abandoned {
+				// A shell or wrapper can leave descendants holding stdout after
+				// the direct process dies. Kill the process tree and close our
+				// pipe before reap tries to drain it; otherwise cleanup waits
+				// for the last descendant to exit.
+				_ = terminateProcessTree(cmd)
+				_ = stdout.Close()
 				cancel()
 			}
 			_ = reap()

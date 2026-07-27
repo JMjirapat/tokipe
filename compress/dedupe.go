@@ -2,6 +2,7 @@ package compress
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -56,13 +57,11 @@ const (
 	// DefaultDedupeThreshold is the Jaccard similarity above which two chunks
 	// are treated as the same.
 	//
-	// Raised from 0.8 to 0.95 after 0.8 was shown to discard a real difference:
-	// two long, otherwise identical policy documents ending in "30 seconds" and
-	// "60 seconds" scored ~0.82, so the second was dropped and the model
-	// answered from whichever ranked first. The stated principle — discarding
-	// needed evidence is worse than sending a duplicate — makes near-exact the
-	// only safe default. Lower it deliberately if you want the savings.
-	DefaultDedupeThreshold = 0.95
+	// The safe default is 1.0: only content with the same normalized word
+	// shingles is discarded. Any threshold below 1 is inherently lossy — a
+	// decisive "allow" versus "deny" can be one word in a long document — so
+	// callers must opt into that trade-off explicitly.
+	DefaultDedupeThreshold = 1.0
 
 	// DefaultShingleSize is the number of words per shingle.
 	DefaultShingleSize = 4
@@ -134,16 +133,19 @@ func (d *DedupeStage) Process(ctx context.Context, req *pipeline.Request) (*pipe
 	kept := make([]pipeline.Chunk, 0, len(req.RetrievedChunks))
 	keptSets := make([]map[string]struct{}, 0, len(req.RetrievedChunks))
 	keptFacts := make([]map[string]struct{}, 0, len(req.RetrievedChunks))
+	keptWords := make([][]string, 0, len(req.RetrievedChunks))
 	dropped := 0
 
 	for _, chunk := range req.RetrievedChunks {
-		set := shingles(chunk.Content, d.shingle, d.minWords)
+		words := normalizeWords(chunk.Content)
+		set := shingleWords(words, d.shingle, d.minWords)
 		if set == nil {
 			// Too short to compare safely — keep it. A chunk that cannot be
 			// judged is not a chunk that can be discarded.
 			kept = append(kept, chunk)
 			keptSets = append(keptSets, nil)
 			keptFacts = append(keptFacts, nil)
+			keptWords = append(keptWords, nil)
 			continue
 		}
 
@@ -151,6 +153,17 @@ func (d *DedupeStage) Process(ctx context.Context, req *pipeline.Request) (*pipe
 		duplicate := false
 		for i, existing := range keptSets {
 			if existing == nil {
+				continue
+			}
+			// The default threshold promises normalized exactness. A Jaccard
+			// score of 1 only proves set equality: it loses multiplicity and
+			// global order, so periodic sequences can collide. Compare the
+			// complete normalized word sequence on the exact path.
+			if d.threshold == 1 {
+				if slices.Equal(words, keptWords[i]) {
+					duplicate = true
+					break
+				}
 				continue
 			}
 			if jaccard(set, existing) < d.threshold {
@@ -175,6 +188,7 @@ func (d *DedupeStage) Process(ctx context.Context, req *pipeline.Request) (*pipe
 		kept = append(kept, chunk)
 		keptSets = append(keptSets, set)
 		keptFacts = append(keptFacts, facts)
+		keptWords = append(keptWords, words)
 	}
 
 	if dropped == 0 {
@@ -193,6 +207,10 @@ func (d *DedupeStage) Process(ctx context.Context, req *pipeline.Request) (*pipe
 // original is usually exactly that kind of noise.
 func shingles(content string, n, minWords int) map[string]struct{} {
 	words := normalizeWords(content)
+	return shingleWords(words, n, minWords)
+}
+
+func shingleWords(words []string, n, minWords int) map[string]struct{} {
 	if len(words) < minWords || len(words) < n {
 		return nil
 	}

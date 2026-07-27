@@ -226,11 +226,46 @@ func TestIdenticalChunksWithNumbersAreStillDeduped(t *testing.T) {
 	}
 }
 
+func TestDefaultKeepsCriticalNonnumericDifference(t *testing.T) {
+	words := make([]string, 300)
+	for i := range words {
+		words[i] = alphaWord(i)
+	}
+	common := strings.Join(words, " ") + " final decision "
+	out := run(t, compress.NewDedupeStage(), chunks(common+"allow", common+"deny"))
+	if len(out.RetrievedChunks) != 2 {
+		t.Fatalf("kept %d, want both — opposite policies are not duplicates",
+			len(out.RetrievedChunks))
+	}
+}
+
+// QA Round 3: Jaccard 1.0 over a set of shingles is not exact sequence
+// equality. Periodic sequences can have the same shingle set after rotation,
+// even though their normalized content and leading policy decision differ.
+func TestDefaultRequiresExactNormalizedSequence(t *testing.T) {
+	a := strings.TrimSpace(strings.Repeat("allow users deny admins ", 4))
+	b := strings.TrimSpace(strings.Repeat("deny admins allow users ", 4))
+	out := run(t, compress.NewDedupeStage(), chunks(a, b))
+	if len(out.RetrievedChunks) != 2 {
+		t.Fatalf("kept %d, want both — normalized sequences differ",
+			len(out.RetrievedChunks))
+	}
+}
+
+func alphaWord(n int) string {
+	b := []byte{'w', 'o', 'r', 'd', 'a', 'a', 'a'}
+	for i := len(b) - 1; i >= 4; i-- {
+		b[i] = byte('a' + n%26)
+		n /= 26
+	}
+	return string(b)
+}
+
 // The default threshold is conservative by design: discarding needed evidence
 // is worse than sending a duplicate.
 func TestDefaultThresholdIsConservative(t *testing.T) {
-	if compress.DefaultDedupeThreshold < 0.9 {
-		t.Errorf("DefaultDedupeThreshold = %v; below 0.9 it discards real differences",
+	if compress.DefaultDedupeThreshold != 1 {
+		t.Errorf("DefaultDedupeThreshold = %v, want 1; lossy matching must be opt-in",
 			compress.DefaultDedupeThreshold)
 	}
 }
