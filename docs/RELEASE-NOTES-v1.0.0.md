@@ -95,13 +95,18 @@ each performed against the code rather than against the documentation. Every
 finding is recorded in [`docs/`](docs), including the ones that were failures of
 verification rather than of code.
 
-## Known limitation
+## Prompt caching, end to end
 
-The Anthropic prompt-caching acceptance test has never run against the live
-endpoint. It needs pay-as-you-go API credit, which a Claude Pro or Max
-subscription does not provide. Cache alignment is unit-tested and correct by
-construction; what is unproven is the end-to-end cache *hit* against the real
-API. See [`providers/anthropic/README.md`](providers/anthropic/README.md).
+The acceptance test passes against a live Messages-API endpoint: turn 1 writes
+the static prefix to the cache, turn 2 reads it back. That confirms
+`cache_control` is emitted in a form a real server accepts, the prefix stays
+byte-identical across turns, and the cache usage fields are parsed correctly.
+
+The recorded run went through a gateway rather than `api.anthropic.com`
+directly, so behaviour against Anthropic's own endpoint is not yet on record.
+The test takes `ANTHROPIC_BASE_URL` and `ANTHROPIC_MODEL`, so you can point it
+at whichever endpoint you actually use — see
+[`providers/anthropic/README.md`](providers/anthropic/README.md).
 
 ## Compatibility
 

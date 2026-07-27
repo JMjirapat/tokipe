@@ -55,6 +55,10 @@ are how you verify caching is actually working in production.
 
 ## Manual integration test
 
+> **Status:** passing. Last recorded run went through a Messages-API gateway
+> with `claude-sonnet-5`; turn 1 wrote the prefix to the cache and turn 2 read
+> it back. A run against `api.anthropic.com` itself is not yet on record.
+
 Unit tests run against `httptest` and need no credentials. The caching
 behaviour, however, can only be confirmed against the real endpoint.
 

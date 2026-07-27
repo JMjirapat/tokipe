@@ -296,6 +296,8 @@
       <span><b>Revision</b> <code>9176327</code> + uncommitted QA rounds 2–4</span>
       <span><b>Module</b> <code>github.com/JMjirapat/tokipe</code></span>
       <span><b>Go</b> 1.23+</span>
+      <span><b>Now</b> published as <code>v1.0.0</code>; §7–§9 close every finding
+      and both open limitations</span>
     </div>
   </header>
 
@@ -616,12 +618,13 @@ go run ./benchmarks</code></pre>
   </section>
 
   <section id="limitations">
-    <h2 class="sec"><span class="num">06</span> Known limitations, unchanged</h2>
-    <p class="sec-note">Documented rather than defects. None blocks release.</p>
+    <h2 class="sec"><span class="num">06</span> Known limitations</h2>
+    <p class="sec-note">Documented rather than defects. None blocks release. The two that were &ldquo;never run&rdquo; have since been run — both are struck through below.</p>
     <ul class="plain">
-      <li><b>The Anthropic prompt-caching test has never run against the live
-      endpoint.</b> It needs pay-as-you-go API credit, which a Claude Pro or Max
-      subscription does not provide. It skips without a key, so CI stays green.</li>
+      <li><s><b>The Anthropic prompt-caching test has never run against the live
+      endpoint.</b></s> <b>Closed</b> — it has now passed against a live
+      Messages-API endpoint. See §9. It still skips without a key, so CI stays
+      green.</li>
       <li><s><b>The pgvector CI job has never executed.</b></s> <b>Closed</b> — it
       has now run against a real database, both in CI and locally. See §8.</li>
       <li><b>Chunk dedupe is lexical, not semantic.</b> It catches copies and
@@ -671,8 +674,58 @@ cd stores/pgvector &amp;&amp; TOKIPE_PGVECTOR_DSN='postgres://postgres:postgres@
 ok  github.com/JMjirapat/tokipe/stores/pgvector  1.542s</code></pre>
     <div class="callout">
       <p>Real database, real query, no skip. The pgvector limitation is closed.
-      The Anthropic prompt-caching test remains genuinely unrun — that one needs
-      pay-as-you-go API credit, not Docker.</p>
+      The Anthropic prompt-caching test needed API credit rather than Docker; it
+      has since been run too — see §9.</p>
+    </div>
+  </section>
+
+  <section id="caching">
+    <h2 class="sec"><span class="num">09</span> Prompt caching against a live endpoint</h2>
+    <p class="sec-note">
+      <code>TestPromptCachingAcrossTurns</code> <b>passes</b>. This was the last
+      outstanding limitation and it is now closed.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          <tr><td>Run by</td><td>the maintainer, not the author of this document</td></tr>
+          <tr><td>Endpoint</td><td><code>https://api.maxplus-ai.cc</code> — a gateway speaking the Messages API</td></tr>
+          <tr><td>Model</td><td><code>claude-sonnet-5</code></td></tr>
+          <tr><td>Result</td><td><span class="pill ok">pass</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>What it proves, precisely</h3>
+    <p>The client emits <code>cache_control</code> in a form a real Messages-API
+    server accepts, the static prefix is byte-identical across turns, and
+    <code>cache_read_input_tokens</code> /
+    <code>cache_creation_input_tokens</code> are parsed back correctly. The
+    assertions cannot pass without a real cache write on turn 1 and a real cache
+    read on turn 2.</p>
+
+    <h3>What it does not prove</h3>
+    <p>Behaviour against <code>api.anthropic.com</code> itself. The run went
+    through a gateway. That is a genuine end-to-end result — a gateway that
+    stripped <code>cache_control</code> or dropped the usage fields would have
+    failed the test, which is why those two failure modes are named in the error
+    messages — but a run against Anthropic's own endpoint is still not on record,
+    and the distinction is worth keeping rather than rounding away.</p>
+
+    <div class="finding decision">
+      <span class="id">Why it took two attempts</span>
+      <h3>A shell continuation, not a key or a code problem</h3>
+      <p>The first invocation reported <code>--- SKIP</code> with the key
+      apparently set. Blank lines between the <code>\</code> continuations broke
+      the line continuation, so the shell executed three separate assignments
+      that were never exported, and <code>go test</code> ran with none of
+      them.</p>
+<pre><code>with blank lines between continuations:  FOO=[] BAR=[]
+without:                                 <span class="hl">FOO=[dummy] BAR=[two]</span></code></pre>
+      <div class="fix"><b>The test worked exactly as designed — it simply never
+      received the variables.</b> The <code>endpoint=… model=…</code> line it logs
+      first exists for this: if that line is absent, the environment did not
+      reach the test, and no assertion below it ran.</div>
     </div>
   </section>
 

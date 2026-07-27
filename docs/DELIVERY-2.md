@@ -223,7 +223,10 @@ found by tests written specifically to doubt a claim rather than to confirm it.
 - [x] QA round 3 independent re-verification — **NO-GO**, one Major remains
 - [x] Default dedupe now compares normalized sequences exactly
 - [x] QA round 4 re-verification — **GO** for the current working tree
-- [ ] Decide whether the root package should be renamed `tokipe`
-- [ ] Push to `github.com/JMjirapat/tokipe` (remote configured, nothing pushed)
-- [ ] Run the Anthropic prompt-caching test once API credit exists
-- [ ] Let the pgvector CI job run for the first time
+- [x] Root package renamed `agentkit` → `tokipe` before the v1.0.0 tag
+- [x] Pushed to `github.com/JMjirapat/tokipe`; `v1.0.0` and three nested-module
+      tags published and verified through the public proxy
+- [x] Anthropic prompt-caching test run against a live Messages-API endpoint —
+      passes; see [PRODUCTION-READINESS.md §9](PRODUCTION-READINESS.md#9-prompt-caching-against-a-live-endpoint)
+- [x] pgvector CI job run for the first time, against a real database, with its
+      anti-skip step passing

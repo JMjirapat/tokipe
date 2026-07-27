@@ -4,7 +4,8 @@
 **Revision reviewed:** `9176327` plus the uncommitted QA round 2–4 working tree
 **Verdict at review time:** **Code is ready. The release is not.**
 **Verdict now:** all five findings resolved; published as `v1.0.0` and verified
-against the public proxy.
+against the public proxy (§7), first CI run green including the pgvector
+integration job (§8), prompt caching confirmed against a live endpoint (§9).
 
 Every command in this document was executed, not quoted from an earlier
 document. Where a claim could only be settled by reproducing a failure, it was
@@ -271,13 +272,14 @@ the message know what to do.
 
 ---
 
-## 6. Known limitations, unchanged
+## 6. Known limitations
 
-These are documented rather than defects, and none blocks release:
+These are documented rather than defects, and none blocks release. The two that
+were "never run" have since been run — both are struck through below.
 
-- **Anthropic prompt-caching test has never run against the live endpoint.** It
-  needs pay-as-you-go API credit, which a Claude Pro or Max subscription does
-  not provide. It skips without a key, so CI stays green.
+- ~~**Anthropic prompt-caching test has never run against the live endpoint.**~~
+  **Closed — see §9.** It has now passed against a live Messages-API endpoint.
+  It still skips without a key, so CI stays green.
 - ~~**The pgvector CI job has never executed.**~~ **Closed — it has now run
   against a real database, both in CI and locally. See §8.**
 - **Chunk dedupe is lexical, not semantic.** It catches copies and near-copies.
@@ -331,5 +333,48 @@ ok  github.com/JMjirapat/tokipe/stores/pgvector  1.542s
 
 Real database, real query, no skip. The pgvector limitation is closed.
 
-The Anthropic prompt-caching test remains genuinely unrun — that one needs
-pay-as-you-go API credit, not Docker.
+The Anthropic prompt-caching test needed API credit rather than Docker; it has
+since been run too — see §9.
+
+---
+
+## 9. Prompt caching against a live endpoint
+
+`TestPromptCachingAcrossTurns` **passes**. This was the last outstanding
+limitation and it is now closed.
+
+| | |
+|---|---|
+| Run by | the maintainer, not the author of this document |
+| Endpoint | `https://api.maxplus-ai.cc` — a gateway speaking the Messages API |
+| Model | `claude-sonnet-5` |
+| Result | pass |
+
+What that proves, precisely: the client emits `cache_control` in a form a real
+Messages-API server accepts, the static prefix is byte-identical across turns,
+and `cache_read_input_tokens` / `cache_creation_input_tokens` are parsed back
+correctly. The assertions cannot pass without a real cache write on turn 1 and a
+real cache read on turn 2.
+
+What it does not prove: behaviour against `api.anthropic.com` itself. The run
+went through a gateway. That is a genuine end-to-end result — a gateway that
+stripped `cache_control` or dropped the usage fields would have failed the test,
+which is why those two failure modes are named in the error messages — but a run
+against Anthropic's own endpoint is still not on record, and the distinction is
+worth keeping rather than rounding away.
+
+### Why it took two attempts
+
+The first invocation reported `--- SKIP` with the key apparently set. The cause
+was neither the key nor the code: blank lines between the `\` continuations
+broke the line continuation, so the shell executed three separate assignments
+that were never exported, and `go test` ran with none of them.
+
+```
+with blank lines between continuations:  FOO=[] BAR=[]
+without:                                 FOO=[dummy] BAR=[two]
+```
+
+The test worked exactly as designed — it simply never received the variables.
+The `endpoint=… model=…` line it logs first exists for this: if that line is
+absent, the environment did not reach the test, and no assertion below it ran.
