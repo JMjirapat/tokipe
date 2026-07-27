@@ -156,7 +156,7 @@ Read this before signing off. These are known and deliberate.
 | Gap | Why | Risk |
 |---|---|---|
 | **Anthropic prompt caching, real endpoint** | Needs pay-as-you-go API credit; a Claude Pro/Max subscription is a different product and issues no API key. Test written, skips cleanly. | The caching benefit is designed and unit-tested, **not field-proven**. Unchanged since Delivery 1. |
-| **pgvector against a real database** | A CI job now exists and fails if its tests skip, but it has never run — nothing has been pushed. No Docker on the development machine. | SQL correctness beyond identifier validation is still unproven *in practice*. |
+| ~~**pgvector against a real database**~~ **Closed** | The job has now run twice on `main` against `pgvector/pgvector:pg16`, and its anti-skip step passed, so the tests really executed. Reproduced locally under Docker as well. See [PRODUCTION-READINESS.md §8](PRODUCTION-READINESS.md#8-first-ci-run). | SQL correctness is now exercised in practice. |
 | **OpenAI provider against a real server** | No API key available. Everything is `httptest`-based. | Wire-format assumptions are unconfirmed against any live OpenAI-compatible server. |
 | **Streaming under adverse networks** | Tested against `httptest` and real CLIs, never against a slow, lossy or half-closed connection. | Resource-cleanup paths are the risk; see QA-BRIEF §B. |
 | **Real-world integration** | Spec §1.2 wants two unrelated adopting systems. Still only this repository's examples. | Interface gaps that appear only under real use. |

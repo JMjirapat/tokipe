@@ -278,11 +278,58 @@ These are documented rather than defects, and none blocks release:
 - **Anthropic prompt-caching test has never run against the live endpoint.** It
   needs pay-as-you-go API credit, which a Claude Pro or Max subscription does
   not provide. It skips without a key, so CI stays green.
-- **The pgvector CI job has never executed.** It requires Docker, unavailable on
-  the development machine. The first real run will be on GitHub Actions.
+- ~~**The pgvector CI job has never executed.**~~ **Closed — it has now run
+  against a real database, both in CI and locally. See §8.**
 - **Chunk dedupe is lexical, not semantic.** It catches copies and near-copies.
   Two passages saying the same thing in different words need embeddings, which
   is a Phase 9 question, not a silent upgrade to this one.
 - **The CLI provider cannot measure cache alignment.** CLI backends do not report
   cache token counts; alignment there is a correctness property, not a measured
   one.
+
+---
+
+## 8. First CI run
+
+Two runs on `main`, both green, **every job executed** — none skipped:
+
+| Job | Result | Duration |
+|---|---|---|
+| core module | success | 63s |
+| nested module `stores/pgvector` | success | 51s |
+| nested module `toolcache/redis` | success | 45s |
+| nested module `metrics/otel` | success | 42s |
+| **pgvector integration (real database)** | **success** | **73s** |
+
+The last one had never run anywhere before this push. It is also the one where a
+green result is easiest to fake: a credential-gated test that skips looks
+identical to one that passes. The workflow already guards against that with a
+second step that greps the verbose output and fails on `--- SKIP`:
+
+```yaml
+- name: fail if the integration tests were skipped
+```
+
+That step reports **success**, so the tests genuinely executed against
+`pgvector/pgvector:pg16` rather than skipping past it.
+
+Reproduced independently on the development machine, which does have Docker
+after all:
+
+```bash
+docker run -d --name tokipe-pgv -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=postgres -p 55432:5432 pgvector/pgvector:pg16
+cd stores/pgvector && TOKIPE_PGVECTOR_DSN='postgres://postgres:postgres@localhost:55432/postgres?sslmode=disable' \
+  go test -race -count=1 -run TestIntegration -v ./...
+```
+
+```
+=== RUN   TestIntegrationSearch
+--- PASS: TestIntegrationSearch (0.08s)
+ok  github.com/JMjirapat/tokipe/stores/pgvector  1.542s
+```
+
+Real database, real query, no skip. The pgvector limitation is closed.
+
+The Anthropic prompt-caching test remains genuinely unrun — that one needs
+pay-as-you-go API credit, not Docker.

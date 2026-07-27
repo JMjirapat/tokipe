@@ -622,9 +622,8 @@ go run ./benchmarks</code></pre>
       <li><b>The Anthropic prompt-caching test has never run against the live
       endpoint.</b> It needs pay-as-you-go API credit, which a Claude Pro or Max
       subscription does not provide. It skips without a key, so CI stays green.</li>
-      <li><b>The pgvector CI job has never executed.</b> It requires Docker,
-      unavailable on the development machine. The first real run will be on
-      GitHub Actions.</li>
+      <li><s><b>The pgvector CI job has never executed.</b></s> <b>Closed</b> — it
+      has now run against a real database, both in CI and locally. See §8.</li>
       <li><b>Chunk dedupe is lexical, not semantic.</b> It catches copies and
       near-copies. Two passages saying the same thing in different words need
       embeddings — a Phase 9 question, not a silent upgrade to this one.</li>
@@ -632,6 +631,49 @@ go run ./benchmarks</code></pre>
       not report cache token counts; alignment there is a correctness property,
       not a measured one.</li>
     </ul>
+  </section>
+
+  <section id="ci">
+    <h2 class="sec"><span class="num">08</span> First CI run</h2>
+    <p class="sec-note">Two runs on <code>main</code>, both green, and
+    <b>every job executed</b> — none skipped.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Job</th><th>Result</th><th class="num">Duration</th></tr></thead>
+        <tbody>
+          <tr><td>core module</td><td><span class="pill ok">success</span></td><td class="num">63s</td></tr>
+          <tr><td>nested module <code>stores/pgvector</code></td><td><span class="pill ok">success</span></td><td class="num">51s</td></tr>
+          <tr><td>nested module <code>toolcache/redis</code></td><td><span class="pill ok">success</span></td><td class="num">45s</td></tr>
+          <tr><td>nested module <code>metrics/otel</code></td><td><span class="pill ok">success</span></td><td class="num">42s</td></tr>
+          <tr><td><b>pgvector integration (real database)</b></td><td><span class="pill ok">success</span></td><td class="num"><b>73s</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="margin-top:16px">The last one had never run anywhere before this
+    push. It is also the one where a green result is easiest to fake: a
+    credential-gated test that skips looks identical to one that passes. The
+    workflow already guards against that with a second step that greps the
+    verbose output and fails on <code>--- SKIP</code>:</p>
+<pre><code>- name: fail if the integration tests were skipped</code></pre>
+    <p>That step reports <b>success</b>, so the tests genuinely executed against
+    <code>pgvector/pgvector:pg16</code> rather than skipping past it.</p>
+
+    <h3>Reproduced independently</h3>
+    <p>On the development machine, which does have Docker after all:</p>
+<pre><code>docker run -d --name tokipe-pgv -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=postgres -p 55432:5432 pgvector/pgvector:pg16
+
+cd stores/pgvector &amp;&amp; TOKIPE_PGVECTOR_DSN='postgres://postgres:postgres@localhost:55432/postgres?sslmode=disable' \
+  go test -race -count=1 -run TestIntegration -v ./...</code></pre>
+<pre><code>=== RUN   TestIntegrationSearch
+<span class="hl">--- PASS: TestIntegrationSearch (0.08s)</span>
+ok  github.com/JMjirapat/tokipe/stores/pgvector  1.542s</code></pre>
+    <div class="callout">
+      <p>Real database, real query, no skip. The pgvector limitation is closed.
+      The Anthropic prompt-caching test remains genuinely unrun — that one needs
+      pay-as-you-go API credit, not Docker.</p>
+    </div>
   </section>
 
   <footer>
