@@ -3,7 +3,8 @@
 **Date:** 2026-07-27
 **Revision reviewed:** `9176327` plus the uncommitted QA round 2–4 working tree
 **Verdict at review time:** **Code is ready. The release is not.**
-**Verdict now:** all five findings resolved — only the push remains.
+**Verdict now:** all five findings resolved; published as `v1.0.0` and verified
+against the public proxy.
 
 Every command in this document was executed, not quoted from an earlier
 document. Where a claim could only be settled by reproducing a failure, it was
@@ -17,14 +18,12 @@ reproduced.
 |---|---|---|
 | B1 | QA-approved work uncommitted | **Fixed** — committed |
 | B2 | `v1.0.0` predates every QA fix | **Fixed** — `v1.0.0` moved to the final commit; `stores/pgvector`, `toolcache/redis` and `metrics/otel` tagged too |
-| B3 | Two nested modules require an unresolvable version | **Fixed** — both now require `v1.0.0`; end-to-end proof needs the push |
+| B3 | Two nested modules require an unresolvable version | **Fixed and confirmed** — both require `v1.0.0`; verified against the real proxy after publication (§7) |
 | D1 | `agentkit` vs `tokipe` naming | **Resolved** — renamed to `tokipe` throughout |
 | D2 | Benchmark label carries the full module path | **Fixed** |
 
-B3 is fixed as far as it can be verified locally. The three nested modules still
-build and pass on Go 1.23, and the version they require is now one that will
-exist. The failure mode it fixes only reproduces against a published proxy, so
-the end-to-end check belongs to step 6 of §5.
+B3's failure mode only reproduces against a published proxy, so it could not be
+settled locally. It has since been confirmed there — see §7.
 
 ---
 
@@ -43,7 +42,7 @@ one landed.
 | Portability | Ready — Go 1.23, `CGO_ENABLED=0`, linux/windows/darwin |
 | Dependency guarantee | Ready — core module has zero third-party deps |
 | Measured benefit | Ready — 57.1% and 54.6% token reduction |
-| **Release mechanics** | **Was not ready — 3 blocking, 2 decisions; all now resolved, push outstanding** |
+| **Release mechanics** | **Was not ready — 3 blocking, 2 decisions; all resolved and published** |
 
 ---
 
@@ -216,11 +215,59 @@ whole tree before concluding so.
 3. ~~Fix the nested modules' `require` versions.~~ **done**
 4. ~~Fix the benchmark label.~~ **done**
 5. ~~Delete the local `v1.0.0`; re-tag the final commit; tag the three submodules.~~ **done**
-6. **Push, then verify `go get` end to end from a scratch module.** ← the only step left
+6. ~~Push, then verify `go get` end to end from a scratch module.~~ **done — see §7**
 
-Step 6 is not optional. Publication is irreversible: the proxy caches every tag
+Step 6 was not optional. Publication is irreversible: the proxy caches every tag
 it sees, so a mistake found after the push cannot be withdrawn, only superseded
-by a new version.
+by a new version. **`v1.0.0` and the three nested-module tags are now published
+and must never be moved.**
+
+---
+
+## 7. Post-publication verification
+
+`main` and all five tags are pushed. Every check below ran against
+`proxy.golang.org` and `sum.golang.org`, from scratch modules, with the tokipe
+entry removed from the local module cache first.
+
+| Check | Result |
+|---|---|
+| `go get github.com/JMjirapat/tokipe` | resolves `v1.0.0` |
+| `go get` each nested module, no version suffix | all three resolve |
+| Import + `go mod tidy` + `go build` for each nested module | all three build |
+| Consumer program: `tokipe.New` → `kit.Run` | runs, returns the expected content |
+| Proxy `.info` / `.mod` / `.zip` for all three nested modules | HTTP 200, correct module paths |
+
+**B3 is confirmed fixed against a real proxy** — the failure it addressed could
+only ever be reproduced there.
+
+### A false alarm worth recording
+
+An intermediate run appeared to show `toolcache/redis` and `metrics/otel`
+failing while `stores/pgvector` passed:
+
+```
+go: module github.com/JMjirapat/tokipe@v1.0.0 found, but does not contain
+    package github.com/JMjirapat/tokipe/toolcache/redis
+```
+
+That was **an artifact of the test loop, not a defect**. `stores/pgvector` was
+simply first in the loop every time. Whichever nested module runs first against
+a cold cache succeeds; the rest fail, because by then the *root* module is
+cached, and `go get <package-path>@<version>` matches that shorter prefix and
+stops instead of querying the deeper module path. Reversing the loop order moved
+the failure onto the other two and cleared `stores/pgvector`, which is what
+identified the cause.
+
+Two lessons, both cheap to forget:
+
+- A loop that always tests in the same order is not three independent tests.
+- The first result in a cache-sensitive sequence is the only unbiased one.
+
+The behaviour is a `go get` quirk, not a packaging fault: the bare `go get`, the
+import-and-tidy path, and an explicit `require` plus `go mod download` all
+succeed for every nested module. It is documented in the README so users who hit
+the message know what to do.
 
 ---
 

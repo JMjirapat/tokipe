@@ -37,14 +37,20 @@ Requirements: Go 1.23 or newer.
 go get github.com/JMjirapat/tokipe
 ```
 
-> **Not yet published.** The module path is `github.com/JMjirapat/tokipe`, but nothing has been
-> pushed to that repository yet, so `go get` will not resolve until it is. Until
-> then, use a `replace` directive pointing at a local checkout:
->
-> ```go
-> require github.com/JMjirapat/tokipe v1.0.0
-> replace github.com/JMjirapat/tokipe => ../tokipe
-> ```
+Published at `v1.0.0`. The optional backends are separate modules, so you pull
+only the dependencies you actually use:
+
+```bash
+go get github.com/JMjirapat/tokipe/stores/pgvector   # pgvector retrieval
+go get github.com/JMjirapat/tokipe/toolcache/redis   # shared tool-result cache
+go get github.com/JMjirapat/tokipe/metrics/otel      # OpenTelemetry metrics
+```
+
+> `go get <path>@v1.0.0` on a nested module can report *"module
+> github.com/JMjirapat/tokipe v1.0.0 found, but does not contain package …"* when
+> the root module is already in your module cache — `go get` matches the shorter
+> prefix and stops. Drop the `@v1.0.0`, or just import the package and run
+> `go mod tidy`; both resolve correctly.
 
 ## 60-second quick start
 

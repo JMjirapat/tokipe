@@ -324,15 +324,14 @@
         <tbody>
           <tr><td>B1</td><td>QA-approved work uncommitted</td><td><span class="pill ok">Fixed</span> committed</td></tr>
           <tr><td>B2</td><td><code>v1.0.0</code> predates every QA fix</td><td><span class="pill ok">Fixed</span> <code>v1.0.0</code> moved to the final commit; the three nested modules tagged too</td></tr>
-          <tr><td>B3</td><td>Two nested modules require an unresolvable version</td><td><span class="pill ok">Fixed</span> both require <code>v1.0.0</code>; end-to-end proof needs the push</td></tr>
+          <tr><td>B3</td><td>Two nested modules require an unresolvable version</td><td><span class="pill ok">Fixed</span> both require <code>v1.0.0</code>; confirmed against the real proxy after publication (§7)</td></tr>
           <tr><td>D1</td><td><code>agentkit</code> vs <code>tokipe</code> naming</td><td><span class="pill ok">Resolved</span> renamed to <code>tokipe</code> throughout</td></tr>
           <tr><td>D2</td><td>Benchmark label carries the full module path</td><td><span class="pill ok">Fixed</span></td></tr>
         </tbody>
       </table>
     </div>
     <div class="callout">
-      <p>B3 is fixed as far as it can be verified locally. The three nested
-      modules still build and pass on Go 1.23, and the version they require is
+      <p>      modules still build and pass on Go 1.23, and the version they require is
       now one that will exist. The failure mode it fixes only reproduces against
       a published proxy, so the end-to-end check belongs to step 6 of §5.</p>
     </div>
@@ -356,7 +355,7 @@
           <tr><td>Portability</td><td><span class="pill ok">Ready</span></td><td>Go 1.23, <code>CGO_ENABLED=0</code>, linux/windows/darwin</td></tr>
           <tr><td>Dependency guarantee</td><td><span class="pill ok">Ready</span></td><td>core module has zero third-party deps</td></tr>
           <tr><td>Measured benefit</td><td><span class="pill ok">Ready</span></td><td>57.1% and 54.6% token reduction</td></tr>
-          <tr><td><b>Release mechanics</b></td><td><span class="pill warn">Was not ready</span></td><td>3 blocking, 2 decisions — all resolved; push outstanding</td></tr>
+          <tr><td><b>Release mechanics</b></td><td><span class="pill ok">Was not ready</span></td><td>3 blocking, 2 decisions — all resolved and published</td></tr>
         </tbody>
       </table>
     </div>
@@ -552,13 +551,67 @@ go run ./benchmarks</code></pre>
       <li><s>Fix the benchmark label.</s> <b>done</b></li>
       <li><s>Delete the local <code>v1.0.0</code>; re-tag the final commit; tag
       the three submodules.</s> <b>done</b></li>
-      <li><b>Push, then verify <code>go get</code> end to end from a scratch
-      module.</b> ← the only step left</li>
+      <li><s>Push, then verify <code>go get</code> end to end from a scratch
+      module.</s> <b>done — see §7</b></li>
     </ol>
     <div class="callout">
-      <p>Step 6 is not optional. Publication is irreversible: the proxy caches
+      <p>Step 6 was not optional. Publication is irreversible: the proxy caches
       every tag it sees, so a mistake found after the push cannot be withdrawn,
-      only superseded by a new version.</p>
+      only superseded by a new version. <b><code>v1.0.0</code> and the three
+      nested-module tags are now published and must never be moved.</b></p>
+    </div>
+  </section>
+
+  <section id="published">
+    <h2 class="sec"><span class="num">07</span> Post-publication verification</h2>
+    <p class="sec-note">
+      <code>main</code> and all five tags are pushed. Every check below ran
+      against <code>proxy.golang.org</code> and <code>sum.golang.org</code>, from
+      scratch modules, with the tokipe entry removed from the local module cache
+      first.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Check</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td><code>go get github.com/JMjirapat/tokipe</code></td><td>resolves <code>v1.0.0</code></td></tr>
+          <tr><td><code>go get</code> each nested module, no version suffix</td><td>all three resolve</td></tr>
+          <tr><td>Import + <code>go mod tidy</code> + <code>go build</code> for each nested module</td><td>all three build</td></tr>
+          <tr><td>Consumer program: <code>tokipe.New</code> → <code>kit.Run</code></td><td>runs, returns the expected content</td></tr>
+          <tr><td>Proxy <code>.info</code>/<code>.mod</code>/<code>.zip</code> for all three</td><td>HTTP 200, correct module paths</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:14px"><b>B3 is confirmed fixed against a real
+    proxy</b> — the failure it addressed could only ever be reproduced there.</p>
+
+    <div class="finding decision">
+      <span class="id">False alarm · worth recording</span>
+      <h3>A test loop that was not three independent tests</h3>
+      <p>An intermediate run appeared to show <code>toolcache/redis</code> and
+      <code>metrics/otel</code> failing while <code>stores/pgvector</code>
+      passed:</p>
+<pre><code>go: module github.com/JMjirapat/tokipe@v1.0.0 found, but does not contain
+    package github.com/JMjirapat/tokipe/toolcache/redis</code></pre>
+      <p>That was <b>an artifact of the test loop, not a defect</b>.
+      <code>stores/pgvector</code> was simply first in the loop every time.
+      Whichever nested module runs first against a cold cache succeeds; the rest
+      fail, because by then the <i>root</i> module is cached, and
+      <code>go get &lt;package-path&gt;@&lt;version&gt;</code> matches that
+      shorter prefix and stops instead of querying the deeper module path.
+      Reversing the loop order moved the failure onto the other two and cleared
+      <code>stores/pgvector</code>, which is what identified the cause.</p>
+      <ul class="plain">
+        <li>A loop that always tests in the same order is not three independent
+        tests.</li>
+        <li>The first result in a cache-sensitive sequence is the only unbiased
+        one.</li>
+      </ul>
+      <div class="fix"><b>Not a packaging fault.</b> The bare <code>go get</code>,
+      the import-and-tidy path, and an explicit <code>require</code> plus
+      <code>go mod download</code> all succeed for every nested module. The quirk
+      is documented in the README so users who hit the message know what to
+      do.</div>
     </div>
   </section>
 
