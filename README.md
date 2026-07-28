@@ -25,6 +25,7 @@ backends.
 
 ## Start here
 
+- [Pitch deck — why, who, what, market, competitors, demo](docs/pitch-deck.html)
 - [Slide deck — the system and how to use it](docs/presentation.html)
 - [Full user manual](MANUAL.md)
 - [High-level system summary](docs/system-summary.html)

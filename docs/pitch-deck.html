@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="tokipe pitch deck — ทำไม, ใคร, คืออะไร, ทำงานอย่างไร, คุณค่า, ฟีเจอร์เด่น, ขนาดตลาด, คู่แข่ง, ตำแหน่งทางการตลาด, ตัวอย่าง และเดโม">
+<title>tokipe · Pitch Deck</title>
+<style>
+  :root{
+    color-scheme: light;
+    --ink:#17231f; --muted:#5f6f68; --paper:#f3f1e8; --surface:#fffef9;
+    --line:#d9dbd0; --green:#155e4b; --green-2:#0d8a69; --mint:#d9eee5;
+    --amber:#d77c2f; --amber-soft:#f7e5d1; --red:#a8332b; --red-soft:#f6dedb;
+    --blue:#346a85; --blue-soft:#dfeef3; --ink-dark:#1d2b26;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; color:var(--ink);
+    background:
+      radial-gradient(circle at 8% 4%, rgba(21,94,75,.12), transparent 28rem),
+      radial-gradient(circle at 92% 18%, rgba(215,124,47,.13), transparent 26rem),
+      var(--paper);
+    font-family:"IBM Plex Sans Thai",Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    line-height:1.6; overflow:hidden;
+  }
+
+  /* ---------- deck chrome ---------- */
+  .deck{position:relative;height:100vh;width:100vw}
+  .slide{
+    position:absolute; inset:0; display:none;
+    padding:clamp(28px,5vh,64px) clamp(24px,6vw,88px) 76px;
+    overflow-y:auto;
+    animation:fade .28s ease;
+  }
+  .slide.on{display:flex; flex-direction:column; justify-content:center; align-items:stretch}
+  .slide.on > *{width:100%}
+  @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+  .bar{position:fixed;left:0;top:0;height:3px;background:var(--green-2);z-index:30;transition:width .25s ease}
+  .hud{
+    position:fixed; right:clamp(16px,4vw,40px); bottom:18px; z-index:30;
+    display:flex; align-items:center; gap:12px;
+    font-size:.82rem; color:var(--muted);
+  }
+  .hud button{
+    font:inherit; cursor:pointer; border:1px solid var(--line); background:var(--surface);
+    color:var(--ink); width:32px; height:32px; border-radius:9px; line-height:1;
+  }
+  .hud button:hover{border-color:var(--green-2); color:var(--green)}
+  .hud .count{font-variant-numeric:tabular-nums; min-width:56px; text-align:right}
+  .hint{
+    position:fixed; left:clamp(16px,4vw,40px); bottom:22px; z-index:30;
+    font-size:.78rem; color:var(--muted);
+  }
+  kbd{
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.9em;
+    border:1px solid var(--line); border-bottom-width:2px; border-radius:5px;
+    padding:1px 5px; background:var(--surface);
+  }
+
+  /* ---------- typography ---------- */
+  .eyebrow{
+    display:inline-block; align-self:flex-start; width:auto !important; padding:4px 12px; border:1px solid var(--line); border-radius:999px;
+    background:rgba(255,255,255,.7); font-size:.72rem; font-weight:660;
+    letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin-bottom:16px;
+  }
+  h1{font-size:clamp(2rem,5.6vw,3.8rem); line-height:1.12; letter-spacing:-.02em; font-weight:800; margin:0 0 16px}
+  h2{font-size:clamp(1.4rem,3.1vw,2.15rem); line-height:1.22; letter-spacing:-.015em; font-weight:780; margin:0 0 8px}
+  h3{font-size:1.02rem; letter-spacing:-.005em; margin:22px 0 8px; color:var(--green)}
+  p{margin:0 0 14px; max-width:70ch; font-size:clamp(.96rem,1.5vw,1.08rem)}
+  .lede{font-size:clamp(1.02rem,1.9vw,1.3rem); color:var(--muted); max-width:56ch}
+  .dim{color:var(--muted)}
+  strong{font-weight:720}
+
+  ul{margin:0 0 14px; padding-left:22px; max-width:70ch}
+  li{margin-bottom:9px; font-size:clamp(.94rem,1.5vw,1.05rem)}
+
+  code{
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.86em;
+    background:rgba(21,94,75,.09); padding:1px 5px; border-radius:5px;
+  }
+  pre{
+    margin:0 0 14px; padding:15px 17px; border-radius:13px; overflow:auto;
+    background:var(--ink-dark); color:#dfe9e4; font-size:clamp(.7rem,1.1vw,.85rem);
+    line-height:1.55; border:1px solid rgba(0,0,0,.2);
+  }
+  pre code{background:none;padding:0;color:inherit;font-size:1em}
+  .k{color:#8fd3b6} .s{color:#ffc98b} .c{color:#7d918a} .o{color:#9fc6dc}
+
+  /* ---------- layout helpers ---------- */
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:clamp(16px,3vw,34px);align-items:start}
+  .two.tight{gap:20px}
+  .three{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .four{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  @media (max-width:860px){ .two,.three,.four{grid-template-columns:1fr} }
+
+  .card{border:1px solid var(--line);border-radius:16px;background:var(--surface);padding:18px 20px}
+  .card h4{margin:0 0 6px;font-size:1rem}
+  .card p{margin:0;font-size:.92rem;color:var(--muted)}
+  .card .tag{display:inline-block;font-size:.68rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--green-2);margin-bottom:6px}
+
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:.76rem;font-weight:660}
+  .pill.ok{background:var(--mint);color:var(--green)}
+  .pill.no{background:var(--red-soft);color:var(--red)}
+  .pill.warn{background:var(--amber-soft);color:var(--amber)}
+
+  table{border-collapse:collapse;width:100%;font-size:clamp(.82rem,1.25vw,.96rem)}
+  th,td{text-align:left;padding:9px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  thead th{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  tbody tr:last-child td{border-bottom:0}
+  td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .tw{border:1px solid var(--line);border-radius:14px;background:var(--surface);overflow:auto}
+
+  .note{border-left:4px solid var(--amber);background:var(--amber-soft);padding:12px 16px;border-radius:0 11px 11px 0;max-width:70ch}
+  .note p{margin:0;font-size:.92rem}
+  .good{border-left-color:var(--green-2);background:var(--mint)}
+
+  .flow{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin:6px 0 18px}
+  .flow span{padding:6px 12px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:.85rem;white-space:nowrap}
+  .flow span.hi{background:var(--mint);border-color:var(--green-2);color:var(--green);font-weight:680}
+  .flow i{color:var(--muted);font-style:normal}
+
+  .big{font-size:clamp(2.3rem,6vw,3.9rem);font-weight:800;letter-spacing:-.03em;line-height:1;color:var(--green)}
+  .bigsub{color:var(--muted);font-size:.92rem;margin-top:4px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:18px;margin:8px 0 18px}
+
+  /* positioning matrix */
+  .matrix{
+    position:relative; border:1px solid var(--line); border-radius:16px; background:var(--surface);
+    aspect-ratio:16/8; margin:6px 0 12px; padding:14px;
+  }
+  .matrix .axis-x, .matrix .axis-y{position:absolute; font-size:.72rem; color:var(--muted); font-weight:660}
+  .matrix .axis-x.l{left:14px; bottom:-2px} .matrix .axis-x.r{right:14px; bottom:-2px}
+  .matrix .axis-y.t{left:50%; top:2px; transform:translateX(-50%)} .matrix .axis-y.b{left:50%; bottom:2px; transform:translateX(-50%)}
+  .matrix .grid-line{position:absolute; background:var(--line)}
+  .matrix .vline{left:50%; top:0; bottom:0; width:1px}
+  .matrix .hline{top:50%; left:0; right:0; height:1px}
+  .dot{
+    position:absolute; transform:translate(-50%,-50%); text-align:center; width:130px;
+  }
+  .dot .mark{width:14px;height:14px;border-radius:50%;margin:0 auto 4px;border:2px solid var(--surface);box-shadow:0 0 0 1px var(--line)}
+  .dot .lbl{font-size:.76rem;font-weight:660;line-height:1.15}
+  .dot.us .mark{background:var(--green-2)}
+  .dot.us .lbl{color:var(--green)}
+  .dot.other .mark{background:var(--muted)}
+  .dot.other .lbl{color:var(--muted)}
+</style>
+</head>
+<body>
+
+<div class="bar" id="bar"></div>
+<div class="deck" id="deck">
+
+<!-- 1 : Cover -->
+<section class="slide on">
+  <span class="eyebrow">Pitch Deck · tokipe</span>
+  <h1>tokipe</h1>
+  <p class="lede">ไลบรารี Go ที่ลดต้นทุนและความหน่วงของแอป LLM แบบวัดผลได้จริง —
+  ไม่ต้องเปลี่ยน model, ไม่ต้องเปลี่ยน provider</p>
+  <div class="stats" style="margin-top:8px">
+    <div><div class="big">57%</div><div class="bigsub">ลด billed input tokens ในเวิร์กโหลดตัวอย่าง</div></div>
+    <div><div class="big">0</div><div class="bigsub">dependency ภายนอกใน core (stdlib ล้วน)</div></div>
+  </div>
+  <p class="dim" style="margin-top:10px"><code>go get github.com/JMjirapat/tokipe</code> · Apache-2.0 · v1.0.0</p>
+</section>
+
+<!-- 2 : Why -->
+<section class="slide">
+  <span class="eyebrow">Why · ทำไมถึงต้องมี</span>
+  <h2>ทุก turn ของแชตบอท/เอเจนต์ ส่งบทสนทนาทั้งหมดซ้ำ</h2>
+  <p>ยิ่งบทสนทนายาว ยิ่งแพง: เอเจนต์ที่คุยถึง turn ที่ 40 ต้องจ่ายค่า token ของ
+  turn ที่ 1–39 ซ้ำทุกครั้ง เอกสารที่ดึงมาซ้ำ (RAG) ถูกแปะซ้ำสอง เครื่องมือ
+  (tool) ที่เคยเรียกไปแล้วก็ถูกเรียกซ้ำ และผลลัพธ์ก็ถูกคิดเงินซ้ำอีกรอบ</p>
+  <div class="stats">
+    <div><div class="big">5,005</div><div class="bigsub">billed input tokens ใน 12 turn โดยไม่มีการปรับแต่งใดๆ</div></div>
+    <div><div class="big">195,691</div><div class="bigsub">เวิร์กโหลดเดียวกัน แต่ยืดเป็น 100 turn</div></div>
+  </div>
+  <div class="note"><p>ปัญหานี้ไม่ใช่ "โมเดลแพง" แต่คือ <strong>ไบต์เดิมที่ถูกจ่ายเงินซ้ำแล้วซ้ำอีก</strong>
+  ทุกทีมที่รัน LLM ใน production เจอปัญหานี้เหมือนกัน ไม่ว่าจะใช้โมเดลไหน</p></div>
+</section>
+
+<!-- 3 : Who -->
+<section class="slide">
+  <span class="eyebrow">Who · กลุ่มเป้าหมาย</span>
+  <h2>ทีมที่รัน LLM application จริงจัง ไม่ใช่แค่ทดลอง</h2>
+  <div class="two tight">
+    <div class="card">
+      <span class="tag">Primary</span>
+      <h4>ทีม Go dev ที่สร้าง AI agent / chatbot</h4>
+      <p>ต้องการลดบิล API และ latency โดยไม่อยากเขียน caching/routing เอง
+      ตั้งแต่ศูนย์ และไม่อยากผูกติดกับ framework ใหญ่</p>
+    </div>
+    <div class="card">
+      <span class="tag">Primary</span>
+      <h4>บริษัทที่รัน LLM ใน production ต่อเนื่อง</h4>
+      <p>ปริมาณ traffic สูงพอที่ 1% ของ token ที่ประหยัดได้ = เงินจริงต่อเดือน
+      ต้องการความน่าเชื่อถือ ไม่ใช่แค่ demo</p>
+    </div>
+    <div class="card">
+      <span class="tag">Secondary</span>
+      <h4>ทีมที่ใช้ Claude Pro/Max, ChatGPT Plus subscription</h4>
+      <p>ไม่มี API key แต่มี CLI subscription อยู่แล้ว — ยังใช้ pipeline
+      เดียวกันได้ผ่าน CLI provider</p>
+    </div>
+    <div class="card">
+      <span class="tag">Secondary</span>
+      <h4>Platform / infra team</h4>
+      <p>ต้องการ observability ว่า optimization แต่ละจุดทำงานจริงไหม
+      หรือ "เงียบ" ไปเมื่อ dependency ล่ม</p>
+    </div>
+  </div>
+</section>
+
+<!-- 4 : What -->
+<section class="slide">
+  <span class="eyebrow">What · คืออะไร</span>
+  <h2>ไลบรารี ไม่ใช่บริการ ไม่ใช่ proxy</h2>
+  <p><code>tokipe</code> คือ pipeline แบบ opt-in ที่รันอยู่ <em>ก่อน</em>
+  การเรียกโมเดลทุกครั้ง ทำหน้าที่ตัดสิ่งที่ไม่จำเป็นออกจาก request โดยที่
+  แอปของคุณยังคงเรียกใช้งานผ่านฟังก์ชันเดียว</p>
+  <div class="flow">
+    <span>request</span><i>→</i>
+    <span>preprocess</span><i>→</i>
+    <span>tool cache</span><i>→</i>
+    <span>RAG</span><i>→</i>
+    <span>dedupe</span><i>→</i>
+    <span>compress</span><i>→</i>
+    <span>history budget</span><i>→</i>
+    <span>cache align</span><i>→</i>
+    <span>routing</span><i>→</i>
+    <span>send</span>
+  </div>
+  <div class="note good"><p><strong>Core module import แค่ Go standard library</strong>
+  ไม่มี dependency แฝง บังคับด้วย CI ทุกครั้งที่ push ไม่ใช่แค่คำสัญญา</p></div>
+</section>
+
+<!-- 5 : Core Value -->
+<section class="slide">
+  <span class="eyebrow">Core Value · คุณค่าหลัก</span>
+  <h2>4 สิ่งที่วางใจได้</h2>
+  <div class="four">
+    <div class="card">
+      <h4>💰 ประหยัดจริง วัดได้</h4>
+      <p>57.1% ลด billed input tokens ในเบนช์มาร์ก enforced โดย CI ไม่ใช่ตัวเลข marketing</p>
+    </div>
+    <div class="card">
+      <h4>🔓 ไม่ผูก vendor</h4>
+      <p>ใช้ได้กับ Anthropic, OpenAI-compatible, CLI subscription หรือ provider ของคุณเอง</p>
+    </div>
+    <div class="card">
+      <h4>🛡️ Fail-open โดยดีไซน์</h4>
+      <p>optimization พังได้ แต่ turn ต้องไม่พัง — ทดสอบจริงด้วยการพังทุก dependency พร้อมกัน</p>
+    </div>
+    <div class="card">
+      <h4>🧩 เปิดใช้ทีละส่วน</h4>
+      <p>ไม่เปิดอะไรเลย = pass-through เพิ่มทีละ stage แล้ววัดผลของแต่ละอันเอง</p>
+    </div>
+  </div>
+  <p class="dim" style="margin-top:10px">คุณค่าที่แท้จริงของ tokipe ไม่ใช่ "ฟีเจอร์เยอะ"
+  แต่คือ <strong>เชื่อถือได้พอที่จะเปิดใช้ใน production จริง</strong></p>
+</section>
+
+<!-- 6 : Key Features -->
+<section class="slide">
+  <span class="eyebrow">Key Features · ฟีเจอร์เด่น</span>
+  <h2>9 ความสามารถ เปิดใช้แยกอิสระต่อกัน</h2>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Feature</th><th>ทำอะไร</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Preprocess</strong></td><td>ตอบคำถามที่รู้คำตอบอยู่แล้วเอง ไม่เรียกโมเดลเลย</td></tr>
+        <tr><td><strong>Tool cache</strong></td><td>argument เดิม → รันเครื่องมือครั้งเดียว, coalesce การเรียกซ้อนกัน</td></tr>
+        <tr><td><strong>RAG</strong></td><td>ดึงเฉพาะ top-K เนื้อหาที่เกี่ยวข้อง แทนที่จะส่งทั้งเอกสาร</td></tr>
+        <tr><td><strong>Chunk dedupe</strong></td><td>ตัดข้อความซ้ำที่ retrieval ดึงมาซ้ำออกอย่างปลอดภัย</td></tr>
+        <tr><td><strong>Compression</strong></td><td>ย่อ JSON, ลบ comment ใน Go source ด้วย AST</td></tr>
+        <tr><td><strong>History budget</strong></td><td>ตัดกลางบทสนทนาให้พอดี budget โดยไม่แตะ prefix หรือข้อความล่าสุด</td></tr>
+        <tr><td><strong>Cache alignment</strong></td><td>จัดลำดับ prompt ให้ provider cache แบบ prefix ได้จริง</td></tr>
+        <tr><td><strong>Routing</strong></td><td>ส่ง turn ง่ายไปโมเดลถูก, turn ยากไปโมเดลแรง</td></tr>
+        <tr><td><strong>Observability</strong></td><td>รู้ทันทีเมื่อ optimization ใดๆ เสื่อมประสิทธิภาพหรือพัง</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- 7 : How it works -->
+<section class="slide">
+  <span class="eyebrow">How · ทำงานอย่างไร</span>
+  <h2>เรียกใช้ผ่านฟังก์ชันเดียว pipeline จัดการที่เหลือ</h2>
+  <div class="two">
+    <div>
+<pre><code>kit := tokipe.New(client,
+    config.WithPreprocess(rules...),
+    config.WithToolCache(cache, exec, ttl),
+    config.WithRAG(embedder, store, <span class="o">5</span>),
+    config.WithChunkDedupe(),
+    config.WithDefaultCompression(),
+    config.WithHistoryBudget(policy, counter),
+    config.WithCacheAlignment(),
+    config.WithRouter(router),
+)
+
+resp, err := kit.Run(ctx, req)</code></pre>
+    </div>
+    <div>
+      <p>ลำดับของ stage ถูก "ล็อก" ไว้ตามกฎความถูกต้อง: retrieval และ
+      compression ต้องเสร็จก่อน history budget และ cache alignment เสมอ
+      ไม่ว่าคุณจะเปิดกี่ stage ก็ตาม</p>
+      <p>ไม่มี global state, ไม่มี daemon, ไม่มี proxy คั่นกลาง traffic ของคุณ
+      — เป็นโค้ดที่รันอยู่ใน process เดียวกับแอปคุณเอง</p>
+    </div>
+  </div>
+</section>
+
+<!-- 8 : How it does (mechanism) -->
+<section class="slide">
+  <span class="eyebrow">How it does · กลไกที่ทำให้ประหยัดจริง</span>
+  <h2>ประหยัดจากการ "ไม่ส่งของซ้ำ" ไม่ใช่การบีบอัดสุดโต่ง</h2>
+  <div class="two tight">
+    <div class="card">
+      <h4>Short-circuit ก่อนถึงโมเดล</h4>
+      <p>preprocess จับคำถามที่ตอบได้เองไว้ตั้งแต่ต้นทาง — 3 ใน 12 turn ของ
+      เบนช์มาร์กไม่ถึงโมเดลเลย</p>
+    </div>
+    <div class="card">
+      <h4>Cache ที่ provider คิดเงินถูกลง</h4>
+      <p>cache alignment จัดให้ prefix คงที่ ไบต์ต่อไบต์ ให้ provider เจอ
+      cache hit และคิดราคาถูกลงในส่วนนั้น</p>
+    </div>
+    <div class="card">
+      <h4>ตัด "กลาง" ไม่ตัด "หัว-ท้าย"</h4>
+      <p>history budget ตัดข้อความกลางบทสนทนา เพราะการตัดหัวจะทำให้ prefix
+      เปลี่ยนทุก turn และ cache ไม่มีวัน hit</p>
+    </div>
+    <div class="card">
+      <h4>Route ตามความยาก ไม่ใช่ตามค่าเริ่มต้น</h4>
+      <p>heuristic router ให้คะแนนความซับซ้อนแล้วเลือกโมเดลถูกสำหรับ turn ง่าย
+      โดยไม่ต้องเขียน logic เอง</p>
+    </div>
+  </div>
+  <div class="note"><p><strong>Fail-open คือกฎเหล็ก</strong>: cache พังกลายเป็น miss,
+  retrieval พังคือไม่ส่ง chunk, compressor พังคือคืนของเดิม ไม่มี stage ไหน
+  ทำให้ turn ล้มเหลวได้</p></div>
+</section>
+
+<!-- 9 : Market size -->
+<section class="slide">
+  <span class="eyebrow">Market Size · ขนาดตลาด (ประมาณการ)</span>
+  <h2>ตลาดค่าใช้จ่าย LLM API กำลังโตเร็ว และ "ต้นทุน" คือ pain point อันดับต้นๆ</h2>
+  <div class="three">
+    <div class="card">
+      <span class="tag">TAM</span>
+      <h4>องค์กรทุกที่ที่เรียก LLM API</h4>
+      <p>ทุกทีมที่ integrate LLM เข้าโปรดักต์ ต้องจ่ายตาม token — ตลาด LLM
+      inference/API spend ทั่วโลกอยู่ในระดับหลักหมื่นล้านดอลลาร์และยังโตต่อเนื่อง</p>
+    </div>
+    <div class="card">
+      <span class="tag">SAM</span>
+      <h4>ทีมที่ใช้ Go หรือสร้าง agent/RAG</h4>
+      <p>กลุ่มที่สร้าง production agent, RAG chatbot, coding assistant ด้วย
+      backend ที่เขียนได้ด้วย Go — กลุ่มที่โตเร็วตามเทรนด์ agentic AI</p>
+    </div>
+    <div class="card">
+      <span class="tag">SOM</span>
+      <h4>ทีม/โปรเจกต์ open-source adopter รุ่นแรก</h4>
+      <p>Go developer ที่กำลังมองหา library ลดต้นทุนแบบ self-hosted ไม่ต้องพึ่ง
+      SaaS gateway ภายนอก</p>
+    </div>
+  </div>
+  <div class="note"><p><strong>หมายเหตุความซื่อสัตย์:</strong> ตัวเลขข้างต้นเป็น
+  กรอบคิดเชิงประมาณการเพื่อวางตำแหน่งโปรเจกต์ ไม่ใช่ผลวิจัยตลาดที่มีแหล่งอ้างอิงตรวจสอบได้
+  — ก่อนใช้ตัวเลขนี้ในการตัดสินใจธุรกิจจริง ควรหา market research ที่มีแหล่งที่มาอ้างอิงได้ประกอบ</p></div>
+</section>
+
+<!-- 10 : Competitors -->
+<section class="slide">
+  <span class="eyebrow">Competitors · คู่แข่ง/ทางเลือกในตลาด</span>
+  <h2>ไม่มีใครแก้ปัญหานี้แบบเดียวกันเป๊ะๆ</h2>
+  <div class="tw">
+    <table>
+      <thead><tr><th>ทางเลือก</th><th>โฟกัสหลัก</th><th>รูปแบบ</th><th>ข้อจำกัดเทียบกับ tokipe</th></tr></thead>
+      <tbody>
+        <tr><td><strong>LangChain / LlamaIndex</strong></td><td>Orchestration framework</td><td>Library (Python-first)</td><td>ไม่ได้โฟกัสลด token cost โดยตรง, framework หนัก</td></tr>
+        <tr><td><strong>Portkey / Helicone</strong></td><td>LLM gateway + observability</td><td>Hosted proxy / SaaS</td><td>ต้องผ่าน network hop เพิ่ม, ผูก SaaS, ไม่ได้ optimize เนื้อหา request</td></tr>
+        <tr><td><strong>LiteLLM</strong></td><td>Unified API เรียกหลาย provider</td><td>Proxy/SDK</td><td>เน้น routing/format ไม่เน้นลด token ด้วย dedupe/compression/budget</td></tr>
+        <tr><td><strong>GPTCache</strong></td><td>Semantic caching</td><td>Python library</td><td>ทำ caching อย่างเดียว ไม่มี pipeline ครบวงจร, ไม่ใช่ Go</td></tr>
+        <tr><td><strong>เขียนเอง (in-house)</strong></td><td>ตามความต้องการเฉพาะ</td><td>Custom code</td><td>ใช้เวลา, ต้องดูแล fail-open และ cache alignment เอง</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="dim" style="margin-top:8px">tokipe ไม่ได้แข่งเป็น orchestration framework
+  หรือ hosted gateway — แต่เป็น <strong>ชั้น optimization ที่วางไว้หน้าโมเดลใน process เดียวกับแอป</strong></p>
+</section>
+
+<!-- 11 : Positioning -->
+<section class="slide">
+  <span class="eyebrow">Positioning · ตำแหน่งทางการตลาด</span>
+  <h2>Library ที่เบา + โฟกัสลดต้นทุนเต็มตัว</h2>
+  <div class="matrix">
+    <div class="grid-line vline"></div>
+    <div class="grid-line hline"></div>
+    <span class="axis-y t">โฟกัสลดต้นทุน token สูง</span>
+    <span class="axis-y b">โฟกัสลดต้นทุน token ต่ำ</span>
+    <span class="axis-x l">Hosted / Proxy</span>
+    <span class="axis-x r">In-process Library</span>
+
+    <div class="dot us" style="left:82%; top:16%">
+      <div class="mark"></div><div class="lbl">tokipe</div>
+    </div>
+    <div class="dot other" style="left:22%; top:22%">
+      <div class="mark"></div><div class="lbl">Portkey / Helicone</div>
+    </div>
+    <div class="dot other" style="left:30%; top:50%">
+      <div class="mark"></div><div class="lbl">LiteLLM</div>
+    </div>
+    <div class="dot other" style="left:78%; top:62%">
+      <div class="mark"></div><div class="lbl">LangChain / LlamaIndex</div>
+    </div>
+    <div class="dot other" style="left:20%; top:78%">
+      <div class="mark"></div><div class="lbl">GPTCache</div>
+    </div>
+  </div>
+  <div class="note good"><p><strong>ช่องว่างที่ tokipe เข้าไปเติม:</strong> ไม่มี
+  network hop เพิ่ม, ไม่ผูก SaaS, และวัดผลการลด token เป็นตัวชี้วัดหลักตั้งแต่แรก
+  ไม่ใช่ผลพลอยได้จาก orchestration</p></div>
+</section>
+
+<!-- 12 : Example -->
+<section class="slide">
+  <span class="eyebrow">Example · ตัวอย่างใช้งานจริง</span>
+  <h2>สิ่งที่เล็กที่สุดที่ใช้งานได้ ใน 60 วินาที</h2>
+  <div class="two">
+    <div>
+<pre><code><span class="k">import</span> (
+    <span class="s">"github.com/JMjirapat/tokipe"</span>
+    <span class="s">"github.com/JMjirapat/tokipe/pipeline"</span>
+    <span class="s">"github.com/JMjirapat/tokipe/providers/mock"</span>
+)
+
+kit := tokipe.New(mock.New(<span class="s">"demo-model"</span>, <span class="s">"42"</span>))
+
+resp, err := kit.Run(ctx, &amp;pipeline.Request{
+    Query: <span class="s">"หกคูณเจ็ดเท่ากับเท่าไร?"</span>,
+})</code></pre>
+    </div>
+    <div>
+<pre><code>content        = <span class="o">"42"</span>
+model          = <span class="o">demo-model</span>
+shortCircuited = <span class="o">false</span></code></pre>
+      <p class="dim">ใช้ mock provider ที่มากับไลบรารี — รันได้ทันทีโดยไม่ต้องมี
+      API key หรือเชื่อมต่ออินเทอร์เน็ต นี่คือ baseline แบบ pass-through
+      ที่ยังไม่เปิด optimization ใดเลย ใช้เทียบผลก่อน/หลังเปิดแต่ละ stage</p>
+    </div>
+  </div>
+</section>
+
+<!-- 13 : Demo -->
+<section class="slide">
+  <span class="eyebrow">Demo · ลองรันจริงได้เดี๋ยวนี้</span>
+  <h2>เบนช์มาร์กที่รันซ้ำได้ ไม่ใช่ตัวเลขโฆษณา</h2>
+  <div class="two">
+    <div>
+<pre><code><span class="c"># รันได้โดยไม่ต้องมี credential ใดๆ</span>
+git clone https://github.com/JMjirapat/tokipe
+<span class="k">cd</span> tokipe
+go run ./benchmarks
+go run ./examples/rag-chatbot
+go run ./examples/coding-agent
+go run ./examples/observability -break</code></pre>
+    </div>
+    <div class="tw">
+      <table>
+        <thead><tr><th>เวิร์กโหลด</th><th class="n">ก่อน → หลัง</th><th class="n">ลดลง</th></tr></thead>
+        <tbody>
+          <tr><td>12-turn agent</td><td class="n">5,005 → 2,148</td><td class="n"><strong>57.1%</strong></td></tr>
+          <tr><td>100-turn loop</td><td class="n">195,691 → 88,930</td><td class="n"><strong>54.6%</strong></td></tr>
+          <tr><td>Turn ที่ไม่ถึงโมเดล</td><td class="n">3 / 12</td><td class="n">25%</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="note good"><p><code>examples/observability -break</code> พังทุก
+  dependency พร้อมกัน — <strong>40/40 turn ยังสำเร็จ</strong> พร้อมบันทึกทุกจุดที่เสื่อม
+  ให้เห็นว่า fail-open ไม่ใช่แค่คำพูด</p></div>
+</section>
+
+<!-- 14 : Closing -->
+<section class="slide">
+  <span class="eyebrow">Next Step</span>
+  <h2>เริ่มต้นได้วันนี้ ไม่ต้องรอ roadmap</h2>
+  <div class="two tight">
+    <div class="card"><h4>README</h4><p>Quick start 60 วินาที และภาพรวมทั้งระบบ</p></div>
+    <div class="card"><h4>MANUAL.md</h4><p>ทุก option, ทุก provider ครบ 26 หัวข้อ</p></div>
+    <div class="card"><h4>examples/</h4><p>โปรแกรมรันได้จริง 6 ตัวอย่าง ไม่ต้องมี credential</p></div>
+    <div class="card"><h4>docs/presentation.html</h4><p>สไลด์เชิงเทคนิคแบบละเอียด สำหรับ dev ที่จะ integrate</p></div>
+  </div>
+<pre><code>git clone https://github.com/JMjirapat/tokipe
+<span class="k">cd</span> tokipe &amp;&amp; go run ./examples/coding-agent</code></pre>
+  <p class="dim">github.com/JMjirapat/tokipe · v1.0.0 · Apache-2.0 · Go 1.23+</p>
+</section>
+
+</div>
+
+<div class="hud">
+  <button id="prev" aria-label="previous slide">‹</button>
+  <span class="count"><span id="cur">1</span> / <span id="tot">14</span></span>
+  <button id="next" aria-label="next slide">›</button>
+</div>
+<div class="hint"><kbd>←</kbd> <kbd>→</kbd> เลื่อนสไลด์ · <kbd>Home</kbd> กลับไปเริ่ม</div>
+
+<script>
+(function(){
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var i = 0;
+  var cur = document.getElementById('cur');
+  var tot = document.getElementById('tot');
+  var bar = document.getElementById('bar');
+  tot.textContent = slides.length;
+
+  function show(n){
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach(function(s, k){ s.classList.toggle('on', k === i); });
+    cur.textContent = i + 1;
+    bar.style.width = ((i + 1) / slides.length * 100) + '%';
+    if (location.hash !== '#' + (i + 1)) history.replaceState(null, '', '#' + (i + 1));
+    slides[i].scrollTop = 0;
+  }
+
+  document.getElementById('next').addEventListener('click', function(){ show(i + 1); });
+  document.getElementById('prev').addEventListener('click', function(){ show(i - 1); });
+
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { show(i + 1); e.preventDefault(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { show(i - 1); e.preventDefault(); }
+    else if (e.key === 'Home') { show(0); e.preventDefault(); }
+    else if (e.key === 'End') { show(slides.length - 1); e.preventDefault(); }
+  });
+
+  var start = parseInt((location.hash || '#1').slice(1), 10);
+  show(isNaN(start) ? 0 : start - 1);
+})();
+</script>
+</body>
+</html>
