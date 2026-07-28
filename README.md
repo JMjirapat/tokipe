@@ -195,11 +195,113 @@ type ModelClient interface {
 | History budget | `config.WithHistoryBudget` | Trims the conversation to fit a per-turn-type token budget |
 | Budget policy | caller-managed `budget.Policy` | Classifies turns and supplies recommended token budgets |
 | Streaming | `kit.RunStream` instead of `kit.Run` | Delivers the answer incrementally; every stage still runs first |
+| Shape-only | `kit.Prepare` instead of `kit.Run` | Runs every stage and returns the shaped request without sending it |
+| Declarative build | `runtime.Build` | Assembles the same pipeline from a JSON document instead of Go code |
 
 The built-in order is a correctness rule: retrieval and compression must finish
 before history budgeting and cache alignment. Custom stages added through
 `config.WithStage` also run before alignment. Routing runs last so it scores the
 final prompt shape.
+
+## Serving callers that are not Go programs
+
+An agent orchestrator written in another language — or one that owns its own
+model call — needs two things this library did not originally expose: a way to
+get a shaped request back instead of an answer, and a way to configure the
+pipeline without compiling Go.
+
+### Shape the request, send it yourself
+
+`Prepare` runs every stage and stops before the model call:
+
+```go
+prep, err := kit.Prepare(ctx, req)
+if err != nil {
+	return err
+}
+if prep.ShortCircuited() {
+	return send(prep.Response) // a rule answered; no model call is due
+}
+
+// prep.Request is retrieved, deduped, compressed, trimmed and aligned.
+// prep.Client is what routing chose — use it, or send with your own SDK.
+resp, err := prep.Client.Send(ctx, prep.Request)
+```
+
+`Run` is `Prepare` plus the send, sharing one implementation, so the two cannot
+drift. A caller that sends the request itself gets every stage's benefit with
+two caveats: it must honour the `CacheBreakpoints` it was handed, and it is free
+to ignore the routing decision.
+
+To hand the request to another process, `pipeline.Externalize` produces a value
+that always marshals — it drops the internal short-circuit key and replaces any
+metadata value that cannot be encoded with a marker naming the reason:
+
+```go
+out, _ := json.Marshal(pipeline.Externalize(prep.Request))
+```
+
+`TurnType` crosses the wire as its name (`"error_recovery"`), never as the
+ordinal, so reordering the constants is not a breaking change for clients.
+
+### Declare the pipeline instead of compiling it
+
+`runtime` builds the same pipeline from JSON, so an operator can raise a TTL
+without a rebuild:
+
+```go
+kit, err := runtime.BuildFile("tokipe.json", nil) // nil = built-in registry
+```
+
+```json
+{
+  "provider": {"type": "openai", "base_url": "http://localhost:11434/v1"},
+  "stages": {
+    "compression": {"preset": "default"},
+    "history_budget": {"preset": "default"},
+    "cache_alignment": {}
+  },
+  "router": {
+    "tiers": [
+      {"provider": {"type": "openai", "base_url": "http://localhost:11434/v1"}, "max_complexity": 0.35},
+      {"provider": {"type": "anthropic", "api_key_env": "ANTHROPIC_API_KEY"}, "max_complexity": 1.0}
+    ]
+  }
+}
+```
+
+JSON rather than YAML because the core module is standard-library-only. Keys are
+never written in a document — `api_key_env` names the environment variable to
+read at build time.
+
+Two rules differ from the rest of the library, on purpose:
+
+- **Configuration does not fail open.** An unknown field, an unregistered
+  component, or an unset `api_key_env` is an error from `Build`, and nothing
+  starts. Fail-open is right for a backend that dies at 3am and wrong for a typo
+  — a silently ignored `"tool_cahce"` is a cache someone believes is running.
+- **What a document can reach is what the program granted it.** Components are
+  resolved through a `Registry` value, not a global that packages mutate from
+  `init`. A nested module (`pgvector`, `redis`) or a Go-written preprocess rule
+  joins in one visible line:
+
+```go
+reg := runtime.NewRegistry()
+reg.RegisterCache("redis", func(o map[string]string) (toolcache.Cache, error) {
+	return redis.New(redis.Config{Addr: o["addr"]})
+})
+kit, err := runtime.Build(spec, reg, config.WithMetrics(rec))
+```
+
+Anything that is a Go function stays a Go function: preprocess predicates beyond
+exact match, custom stages, and the tool executor. A document names them;
+`Registry` supplies them. The tool cache in particular cannot be enabled from a
+document alone, because the cache resolves misses by *executing* tools — so
+`Build` says so rather than half-enabling a cache that could only ever miss.
+
+```bash
+go run ./examples/declarative
+```
 
 ## Request and result
 
@@ -410,6 +512,7 @@ go run ./examples/coding-agent
 go run ./examples/cli-provider
 go run ./examples/streaming
 go run ./examples/observability
+go run ./examples/declarative
 go run ./benchmarks
 ```
 
@@ -433,13 +536,13 @@ CGO_ENABLED=0 go build ./...
 
 A healthy checkout reports:
 
-<!-- inventory:test-funcs=394 -->
-<!-- inventory:packages=29 -->
+<!-- inventory:test-funcs=418 -->
+<!-- inventory:packages=31 -->
 
 | Quantity | Value | Command |
 |---|---|---|
-| Test/Example functions | **394** | `grep -rhoE '^func (Test\|Example)[A-Za-z0-9_]*' --include='*_test.go' . \| wc -l` |
-| Packages in the root module | **29** | `go list ./... \| wc -l` |
+| Test/Example functions | **418** | `grep -rhoE '^func (Test\|Example)[A-Za-z0-9_]*' --include='*_test.go' . \| wc -l` |
+| Packages in the root module | **31** | `go list ./... \| wc -l` |
 | Failures | **0** | `go test -race -count=1 ./...` |
 
 Those numbers are enforced, not decorative: `inventory_test.go` reads the markers

@@ -52,13 +52,14 @@ type StreamingClient interface {
 // A short-circuiting preprocess rule yields exactly one delta and stops, so
 // callers need no special case for "the answer arrived without a model".
 func (p *Pipeline) RunStream(ctx context.Context, req *Request) (iter.Seq2[Delta, error], error) {
-	req, resp, client, err := p.prepare(ctx, req)
+	prep, err := p.Prepare(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	if resp != nil {
-		return StreamOne(resp), nil // short-circuited
+	if prep.ShortCircuited() {
+		return StreamOne(prep.Response), nil
 	}
+	req, client := prep.Request, prep.Client
 
 	// A client that cannot stream is not an error: adapt it, so callers never
 	// have to ask which kind of client they hold.
@@ -133,17 +134,50 @@ func Collect(seq iter.Seq2[Delta, error]) (*Response, error) {
 // the evidence in Metadata for a caller or a wrapping stage to surface.
 const MetaRouterError = "router.error"
 
-// prepare runs the stages and resolves the client, shared by Run and RunStream
-// so the two can never drift in stage order, short-circuit handling, or
-// routing. A non-nil *Response means a stage answered and no model call is due.
-func (p *Pipeline) prepare(ctx context.Context, req *Request) (*Request, *Response, ModelClient, error) {
+// Prepared is the outcome of running every stage without performing the model
+// call: the shaped Request, the client routing chose for it, and — when a stage
+// answered on its own — the Response that makes a model call unnecessary.
+//
+// Exactly one of Response and Client is non-nil. A non-nil Response means a
+// stage short-circuited the turn; there is nothing left to send.
+type Prepared struct {
+	// Request is the shaped request: retrieved, deduped, compressed, trimmed
+	// and aligned, exactly as Run would have sent it.
+	Request *Request
+
+	// Response is non-nil only when a stage answered without an LLM call.
+	Response *Response
+
+	// Client is the ModelClient the router selected, or the pipeline's default
+	// when no router is configured. Nil when Response is non-nil.
+	Client ModelClient
+}
+
+// ShortCircuited reports whether a stage answered the turn without a model
+// call, making Client nil and Response the final answer.
+func (p *Prepared) ShortCircuited() bool { return p != nil && p.Response != nil }
+
+// Prepare runs every stage in order and resolves the client, stopping short of
+// the model call itself. Run and RunStream are both built on it, so the three
+// can never drift in stage order, short-circuit handling, or routing.
+//
+// It is also the entry point for callers that own their own model call — an
+// external agent runtime that wants the prompt shaped but intends to send it
+// with its own credentials and SDK. Such a caller gets every stage's benefit
+// except the two that need the send itself: cache alignment emits breakpoints
+// it must then honour, and routing returns a Client it is free to ignore.
+//
+// NOTE: a panic from Stage.Process is deliberately NOT recovered; see the Stage
+// docs. Name() is guarded, because a broken name must never destroy an error
+// Process already returned.
+func (p *Pipeline) Prepare(ctx context.Context, req *Request) (*Prepared, error) {
 	for _, stage := range p.stages {
 		if err := ctx.Err(); err != nil {
-			return req, nil, nil, err
+			return nil, err
 		}
 		next, err := stage.Process(ctx, req)
 		if err != nil {
-			return req, nil, nil, &StageError{Stage: safe.Name(stage.Name, UnnamedStage), Err: err}
+			return nil, &StageError{Stage: safe.Name(stage.Name, UnnamedStage), Err: err}
 		}
 		if next != nil {
 			req = next
@@ -151,12 +185,12 @@ func (p *Pipeline) prepare(ctx context.Context, req *Request) (*Request, *Respon
 		if v, ok := req.Metadata[MetaShortCircuit]; ok {
 			resp, ok := v.(*Response)
 			if !ok {
-				return req, nil, nil, &StageError{
+				return nil, &StageError{
 					Stage: safe.Name(stage.Name, UnnamedStage),
 					Err:   errBadShortCircuit,
 				}
 			}
-			return req, resp, nil, nil
+			return &Prepared{Request: req, Response: resp}, nil
 		}
 	}
 
@@ -175,5 +209,5 @@ func (p *Pipeline) prepare(ctx context.Context, req *Request) (*Request, *Respon
 			req.SetMeta("router.client", safe.Name(d.Client.Name, UnnamedClient))
 		}
 	}
-	return req, nil, client, nil
+	return &Prepared{Request: req, Client: client}, nil
 }

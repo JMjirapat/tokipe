@@ -54,9 +54,15 @@ func (r *Request) SetMeta(key string, value any) {
 // finished *Response back to Pipeline.Run without making an LLM call.
 const MetaShortCircuit = "_short_circuit_response"
 
+// The json tags on this file's types are load-bearing rather than decorative:
+// a Request crosses a process boundary whenever an external agent runtime asks
+// tokipe to shape a prompt (see json.go), and a wire format that spelled fields
+// in Go's exported-identifier case would make every non-Go client transcribe
+// "AfterMessageIndex". Naming them explicitly also pins the format, so renaming
+// a Go field can no longer silently change what is on the wire.
 type Message struct {
-	Role    string // "user" | "assistant" | "system"
-	Content string
+	Role    string `json:"role"` // "user" | "assistant" | "system"
+	Content string `json:"content"`
 
 	// Static marks content the caller guarantees will not change for the
 	// lifetime of the session (system prompt, tool definitions). cache.Aligner
@@ -65,18 +71,18 @@ type Message struct {
 	// NOTE: additive extension to the spec's Message type — §2.4.6 requires
 	// "caller-marked messages" for the static segment but the spec's struct
 	// had no field to carry that mark.
-	Static bool
+	Static bool `json:"static,omitempty"`
 }
 
 type ToolCall struct {
-	Name string
-	Args map[string]any
+	Name string         `json:"name"`
+	Args map[string]any `json:"args,omitempty"`
 }
 
 type Chunk struct {
-	Content    string
-	SourceURL  string
-	Similarity float64
+	Content    string  `json:"content"`
+	SourceURL  string  `json:"source_url,omitempty"`
+	Similarity float64 `json:"similarity,omitempty"`
 }
 
 type TurnType int
@@ -104,24 +110,24 @@ func (t TurnType) String() string {
 // CacheBreakpoint marks where provider-side prompt caching should be anchored
 // in the outgoing request. AfterMessageIndex is an index into Request.Messages.
 type CacheBreakpoint struct {
-	AfterMessageIndex int
-	Reason            string
+	AfterMessageIndex int    `json:"after_message_index"`
+	Reason            string `json:"reason,omitempty"`
 }
 
 // Response is the final result returned to the caller after the pipeline
 // (or a short-circuiting stage) has produced an answer.
 type Response struct {
-	Content        string
-	ModelUsed      string
-	ShortCircuited bool // true if a preprocess rule handled it without an LLM call
-	Usage          Usage
+	Content        string `json:"content"`
+	ModelUsed      string `json:"model_used,omitempty"`
+	ShortCircuited bool   `json:"short_circuited,omitempty"` // true if a preprocess rule handled it without an LLM call
+	Usage          Usage  `json:"usage"`
 }
 
 type Usage struct {
-	InputTokens         int
-	OutputTokens        int
-	CacheReadTokens     int
-	CacheCreationTokens int
+	InputTokens         int `json:"input_tokens,omitempty"`
+	OutputTokens        int `json:"output_tokens,omitempty"`
+	CacheReadTokens     int `json:"cache_read_tokens,omitempty"`
+	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"`
 }
 
 // Stage is the single extension point of the pipeline. Every optimization
@@ -186,7 +192,7 @@ func NewWithRouter(fallback ModelClient, router Router, stages ...Stage) *Pipeli
 
 // Run executes every stage in order, then performs the final model call.
 //
-// The stage loop, short-circuit handling and routing all live in prepare, which
+// The stage loop, short-circuit handling and routing all live in Prepare, which
 // RunStream shares. Keeping one copy is deliberate: duplicated, the streaming
 // path could silently drift out of step with this one, and that is a bug class
 // better designed out than tested for.
@@ -195,14 +201,14 @@ func NewWithRouter(fallback ModelClient, router Router, stages ...Stage) *Pipeli
 // docs. Name() is guarded, because a broken name must never destroy an error
 // Process already returned.
 func (p *Pipeline) Run(ctx context.Context, req *Request) (*Response, error) {
-	req, resp, client, err := p.prepare(ctx, req)
+	prep, err := p.Prepare(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	if resp != nil {
-		return resp, nil // a stage answered; no model call is due
+	if prep.ShortCircuited() {
+		return prep.Response, nil // a stage answered; no model call is due
 	}
-	return client.Send(ctx, req)
+	return prep.Client.Send(ctx, prep.Request)
 }
 
 type StageError struct {
