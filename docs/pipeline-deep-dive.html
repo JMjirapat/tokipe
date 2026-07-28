@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="tokipe pipeline deep dive — แต่ละ layer ทำอะไร ทำไม อย่างไร และคำถามความเข้ากันได้: multi-agent, ข้าม provider, และ backend อื่นๆ">
+<title>tokipe · Pipeline Deep Dive</title>
+<style>
+  :root{
+    color-scheme: light;
+    --ink:#17231f; --muted:#5f6f68; --paper:#f3f1e8; --surface:#fffef9;
+    --line:#d9dbd0; --green:#155e4b; --green-2:#0d8a69; --mint:#d9eee5;
+    --amber:#d77c2f; --amber-soft:#f7e5d1; --red:#a8332b; --red-soft:#f6dedb;
+    --blue:#346a85; --blue-soft:#dfeef3; --ink-dark:#1d2b26;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; color:var(--ink);
+    background:
+      radial-gradient(circle at 8% 4%, rgba(21,94,75,.12), transparent 28rem),
+      radial-gradient(circle at 92% 18%, rgba(215,124,47,.13), transparent 26rem),
+      var(--paper);
+    font-family:"IBM Plex Sans Thai",Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    line-height:1.6; overflow:hidden;
+  }
+
+  .deck{position:relative;height:100vh;width:100vw}
+  .slide{
+    position:absolute; inset:0; display:none;
+    padding:clamp(28px,5vh,64px) clamp(24px,6vw,88px) 76px;
+    overflow-y:auto;
+    animation:fade .28s ease;
+  }
+  .slide.on{display:flex; flex-direction:column; justify-content:center; align-items:stretch}
+  .slide.on > *{width:100%}
+  @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+  .bar{position:fixed;left:0;top:0;height:3px;background:var(--green-2);z-index:30;transition:width .25s ease}
+  .hud{
+    position:fixed; right:clamp(16px,4vw,40px); bottom:18px; z-index:30;
+    display:flex; align-items:center; gap:12px;
+    font-size:.82rem; color:var(--muted);
+  }
+  .hud button{
+    font:inherit; cursor:pointer; border:1px solid var(--line); background:var(--surface);
+    color:var(--ink); width:32px; height:32px; border-radius:9px; line-height:1;
+  }
+  .hud button:hover{border-color:var(--green-2); color:var(--green)}
+  .hud .count{font-variant-numeric:tabular-nums; min-width:56px; text-align:right}
+  .hint{
+    position:fixed; left:clamp(16px,4vw,40px); bottom:22px; z-index:30;
+    font-size:.78rem; color:var(--muted);
+  }
+  kbd{
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.9em;
+    border:1px solid var(--line); border-bottom-width:2px; border-radius:5px;
+    padding:1px 5px; background:var(--surface);
+  }
+
+  .eyebrow{
+    display:inline-block; align-self:flex-start; width:auto !important; padding:4px 12px; border:1px solid var(--line); border-radius:999px;
+    background:rgba(255,255,255,.7); font-size:.72rem; font-weight:660;
+    letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin-bottom:16px;
+  }
+  h1{font-size:clamp(2rem,5.2vw,3.4rem); line-height:1.14; letter-spacing:-.02em; font-weight:800; margin:0 0 16px}
+  h2{font-size:clamp(1.35rem,2.9vw,2rem); line-height:1.24; letter-spacing:-.01em; font-weight:780; margin:0 0 8px}
+  h3{font-size:1rem; letter-spacing:0; margin:20px 0 8px; color:var(--green)}
+  p{margin:0 0 14px; max-width:74ch; font-size:clamp(.94rem,1.4vw,1.05rem)}
+  .lede{font-size:clamp(1rem,1.8vw,1.25rem); color:var(--muted); max-width:58ch}
+  .dim{color:var(--muted)}
+  strong{font-weight:720}
+
+  ul{margin:0 0 14px; padding-left:22px; max-width:74ch}
+  li{margin-bottom:8px; font-size:clamp(.92rem,1.4vw,1.02rem)}
+
+  code{
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.85em;
+    background:rgba(21,94,75,.09); padding:1px 5px; border-radius:5px;
+  }
+  pre{
+    margin:0 0 14px; padding:14px 16px; border-radius:13px; overflow:auto;
+    background:var(--ink-dark); color:#dfe9e4; font-size:clamp(.68rem,1.05vw,.82rem);
+    line-height:1.5; border:1px solid rgba(0,0,0,.2);
+  }
+  pre code{background:none;padding:0;color:inherit;font-size:1em}
+  .k{color:#8fd3b6} .s{color:#ffc98b} .c{color:#7d918a} .o{color:#9fc6dc}
+
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:clamp(16px,3vw,32px);align-items:start}
+  .three{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .layer3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin:6px 0 16px}
+  @media (max-width:900px){ .two,.three,.layer3{grid-template-columns:1fr} }
+
+  .card{border:1px solid var(--line);border-radius:14px;background:var(--surface);padding:15px 17px}
+  .card h4{margin:0 0 6px;font-size:.94rem;letter-spacing:.02em;text-transform:uppercase;color:var(--green-2)}
+  .card p{margin:0;font-size:.9rem;color:var(--ink)}
+
+  .layer-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+  .layer-num{
+    font-size:.78rem;font-weight:800;color:var(--green);background:var(--mint);
+    padding:2px 10px;border-radius:999px;letter-spacing:.04em;
+  }
+
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:.74rem;font-weight:660}
+  .pill.ok{background:var(--mint);color:var(--green)}
+  .pill.no{background:var(--red-soft);color:var(--red)}
+  .pill.warn{background:var(--amber-soft);color:var(--amber)}
+
+  table{border-collapse:collapse;width:100%;font-size:clamp(.8rem,1.2vw,.94rem)}
+  th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  thead th{font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  tbody tr:last-child td{border-bottom:0}
+  .tw{border:1px solid var(--line);border-radius:14px;background:var(--surface);overflow:auto}
+
+  .note{border-left:4px solid var(--amber);background:var(--amber-soft);padding:11px 15px;border-radius:0 11px 11px 0;max-width:74ch}
+  .note p{margin:0;font-size:.9rem}
+  .good{border-left-color:var(--green-2);background:var(--mint)}
+  .bad{border-left-color:var(--red);background:var(--red-soft)}
+
+  .flow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0 16px}
+  .flow span{padding:5px 11px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:.8rem;white-space:nowrap}
+  .flow span.hi{background:var(--mint);border-color:var(--green-2);color:var(--green);font-weight:680}
+  .flow i{color:var(--muted);font-style:normal}
+</style>
+</head>
+<body>
+
+<div class="bar" id="bar"></div>
+<div class="deck" id="deck">
+
+<!-- 1 : Cover -->
+<section class="slide on">
+  <span class="eyebrow">Deep Dive · tokipe pipeline</span>
+  <h1>เจาะลึกทีละ Layer</h1>
+  <p class="lede">แต่ละ stage ใน pipeline ทำอะไร ทำไมต้องมี และทำงานอย่างไร —
+  พร้อมตอบคำถามเรื่อง multi-agent, ข้าม provider และ backend ภายนอก</p>
+  <div class="flow" style="margin-top:12px">
+    <span>request</span><i>→</i>
+    <span class="hi">preprocess</span><i>→</i>
+    <span class="hi">tool cache</span><i>→</i>
+    <span class="hi">RAG</span><i>→</i>
+    <span class="hi">dedupe</span><i>→</i>
+    <span class="hi">compress</span><i>→</i>
+    <span class="hi">history budget</span><i>→</i>
+    <span class="hi">cache align</span><i>→</i>
+    <span class="hi">routing</span><i>→</i>
+    <span>send</span>
+  </div>
+</section>
+
+<!-- 2 : Preprocess -->
+<section class="slide">
+  <div class="layer-head"><span class="layer-num">Layer 1</span><h2>Preprocess</h2></div>
+  <div class="layer3">
+    <div class="card"><h4>What</h4><p>ชุด <code>Rule</code> ที่ตรวจจับคำถามที่ตอบได้เองก่อนถึงโมเดล เช่น
+    คำสั่งระบบตายตัว หรือ JSON ที่ parse ได้ตรงๆ</p></div>
+    <div class="card"><h4>Why</h4><p>เป็น stage เดียวที่ตัด <strong>100%</strong> ของ input tokens
+    สำหรับ turn นั้น เพราะไม่เรียกโมเดลเลย ในเบนช์มาร์ก 3/12 turn จบตรงนี้</p></div>
+    <div class="card"><h4>How</h4><p>สอง gate: <code>CanHandle</code> (เร็ว, หยาบ, รันทุก request)
+    แล้วค่อย <code>Handle</code> (ช้ากว่า, แม่นกว่า) คืน <code>nil</code> ได้ถ้าจริงๆ ตอบไม่ได้</p></div>
+  </div>
+<pre><code>preprocess.RuleFunc{
+    Match: <span class="k">func</span>(r *pipeline.Request) <span class="k">bool</span> { <span class="k">return</span> r.Query == <span class="s">"/help"</span> },
+    Fn:    <span class="k">func</span>(r *pipeline.Request) (*pipeline.Response, <span class="k">error</span>) {
+        <span class="k">return</span> &amp;pipeline.Response{Content: menu}, <span class="k">nil</span>
+    },
+}</code></pre>
+  <div class="note"><p><strong>กฎ:</strong> เข้มงวดไว้ก่อน — คืน <code>false</code>
+  เมื่อไม่แน่ใจ เพราะเรียกโมเดล 1 ครั้งถูกกว่าตอบผิด 1 ครั้งเสมอ ไม่มีโมเดลมาช่วยเช็คตรงนี้</p></div>
+</section>
+
+<!-- 3 : Tool cache -->
+<section class="slide">
+  <div class="layer-head"><span class="layer-num">Layer 2</span><h2>Tool Cache</h2></div>
+  <div class="layer3">
+    <div class="card"><h4>What</h4><p>Cache ผลลัพธ์การเรียก tool คีย์ด้วย hash ของ (tool name, arguments)
+    ทั้ง in-memory และ Redis-backed (module แยก)</p></div>
+    <div class="card"><h4>Why</h4><p>Tool ถูกเรียกซ้ำด้วย argument เดิมบ่อยมากในเอเจนต์ที่คุยยาว —
+    ประหยัดทั้งค่าเรียก tool <em>และ</em> token ของผลลัพธ์ที่ไม่ต้องส่งซ้ำ</p></div>
+    <div class="card"><h4>How</h4><p><code>Get/Set</code> พร้อม TTL ต่อรายการ, ทุก backend เป็น fail-open
+    (error → miss) และมี singleflight กัน stampede เมื่อเรียกซ้อนกันพร้อมกัน</p></div>
+  </div>
+<pre><code>config.WithToolCache(toolcache.NewMemoryCache(), executor, time.Minute)
+
+turn 1 — executor invocations: <span class="o">1</span>
+turn 2 — executor invocations: <span class="o">1</span>   <span class="c">// argument เดิม, ไม่รันซ้ำ</span></code></pre>
+  <div class="note good"><p>ทดสอบด้วย 480 concurrent calls ต่อ shared state พร้อม
+  <code>-race</code>: การเรียกซ้ำที่เหมือนกันทุกตัวยุบเหลือ execution เดียว</p></div>
+</section>
+
+<!-- 4 : RAG -->
+<section class="slide">
+  <div class="layer-head"><span class="layer-num">Layer 3</span><h2>Retrieval (RAG)</h2></div>
+  <div class="layer3">
+    <div class="card"><h4>What</h4><p>Embed คำถาม แล้วดึง top-K chunk ที่เกี่ยวข้องที่สุดจาก
+    <code>stores.VectorStore</code> มาแปะเข้า request แบบ dynamic content</p></div>
+    <div class="card"><h4>Why</h4><p>ทางเลือกคือส่งทั้งเอกสาร/ทั้งฐานความรู้ทุกครั้ง — RAG "เพิ่ม" token
+    ต่อ turn แต่ทำให้ไม่ต้องส่งของที่ไม่เกี่ยวข้องเลย</p></div>
+    <div class="card"><h4>How</h4><p>Request-level opt-in ผ่าน <code>NeedsRetrieval: true</code> —
+    ไม่บังคับทุก turn ต้อง retrieve, และ store ใช้ได้ทั้ง mock และ pgvector</p></div>
+  </div>
+  <div class="note"><p><strong>ข้อควรระวังเชิงสถาปัตยกรรม:</strong> <code>RetrievedChunks</code>
+  เป็น "dynamic" เสมอ — ต้องไม่มี cache breakpoint ไปแตะส่วนนี้ ไม่งั้น provider cache
+  จะ miss ทุก turn เพราะเนื้อหาเปลี่ยนตลอด</p></div>
+</section>
+
+<!-- 5 : Dedupe -->
+<section class="slide">
+  <div class="layer-head"><span class="layer-num">Layer 4</span><h2>Chunk Dedupe</h2></div>
+  <div class="layer3">
+    <div class="card"><h4>What</h4><p>ตัด chunk ที่ retrieval ดึงมาซ้ำออก — เกิดบ่อยเมื่อเอกสารเดียวกัน
+    ถูก index ไว้ภายใต้ URL หรือ chunk boundary ต่างกัน</p></div>
+    <div class="card"><h4>Why</h4><p>สำเนาที่สองไม่ได้ให้ข้อมูลใหม่กับโมเดลเลย แต่ถูกคิดราคาเต็มเหมือน
+    chunk แรกทุกประการ — เป็นต้นทุนที่ไม่มีประโยชน์อะไรตอบแทน</p></div>
+    <div class="card"><h4>How</h4><p>ค่าเริ่มต้นคือ exact normalized-word-sequence match (ปลอดภัย 100%)
+    ส่วน near-duplicate threshold ต่ำกว่า 1.0 เป็น opt-in แบบ lossy ชัดเจน</p></div>
+  </div>
+  <div class="note bad"><p><strong>ทำไมไม่ใช้ fuzzy matching เป็นค่าเริ่มต้น:</strong>
+  ในเอกสารยาว คำว่า "allow" กับ "deny" อาจต่างกันแค่คำเดียวแต่ความหมายตรงข้ามกันสิ้นเชิง
+  — ความปลอดภัยของข้อมูลสำคัญกว่าการประหยัดเพิ่มอีกไม่กี่เปอร์เซ็นต์</p></div>
+</section>
+
+<!-- 6 : Compression -->
+<section class="slide">
+  <div class="layer-head"><span class="layer-num">Layer 5</span><h2>Compression</h2></div>
+  <div class="layer3">
+    <div class="card"><h4>What</h4><p>3 compressor ต่อกันเป็น chain: JSON minifier, Go-source (AST-aware),
+    และ prose whitespace normalizer เป็นตัวสุดท้ายเสมอ</p></div>
+    <div class="card"><h4>Why</h4><p>JSON ที่ pretty-print มี whitespace ไร้ประโยชน์เต็มไปหมด
+    ส่วนซอร์สโค้ด Go ที่แปะเข้า prompt มักมี comment ที่โมเดลไม่ต้องใช้ตัดสินใจ</p></div>
+    <div class="card"><h4>How</h4><p><code>CanHandle</code> เช็คก่อนว่า parse ได้ไหม, คืนต้นฉบับกลับ
+    ถ้าผลลัพธ์ไม่เล็กลงหรือ parse ไม่ผ่านซ้ำ — ไม่มีทางเสียหายจากการบีบอัด</p></div>
+  </div>
+<pre><code>config.WithCompression(
+    compress.NewJSONCompressor(),
+    compress.NewCodeCompressor(), <span class="c">// ลบ comment, เก็บ function body ไว้ (ค่าเริ่มต้น)</span>
+    compress.NewTextCompressor(), <span class="c">// catch-all ต้องอยู่ท้ายสุดเสมอ</span>
+)</code></pre>
+  <div class="note"><p><code>CodeCompressor</code> ปฏิเสธไฟล์ที่มี compiler directive หรือ
+  <code>import "C"</code> และ verify ผลลัพธ์ตัวเองด้วยการ parse ซ้ำเทียบจำนวน declaration</p></div>
+</section>
+
+<!-- 7 : History budget -->
+<section class="slide">
+  <div class="layer-head"><span class="layer-num">Layer 6</span><h2>History Budget</h2></div>
+  <div class="layer3">
+    <div class="card"><h4>What</h4><p>ตัดบทสนทนาให้พอดี token budget ต่อประเภท turn — policy กำหนด
+    3 ระดับ: routine resume (4k), new question (12k), error recovery (20k)</p></div>
+    <div class="card"><h4>Why</h4><p>ต้นทุนหลักของ agent loop ที่ยาวคือ "ประวัติที่โตไม่หยุด" — ในเทสยาว
+    100 turn ลดจาก 195,691 เหลือ 88,930 billed tokens (54.6%)</p></div>
+    <div class="card"><h4>How</h4><p>ตัด "กลาง" ของบทสนทนา ไม่แตะ static prefix และไม่ทิ้งข้อความล่าสุด
+    — ถ้า fit ไม่ได้ตามกฎ retention จะรายงาน <code>history.over_budget</code> แทนที่จะฝืนตัด</p></div>
+  </div>
+<pre><code>config.WithHistoryBudget(budget.DefaultPolicy(), counter)
+req.TurnType = budget.Classify(req)</code></pre>
+  <div class="note"><p><strong>ทำไมตัดกลางไม่ตัดหัว:</strong> ตัดหัวจะเปลี่ยน byte แรกของ prompt
+  ทุก turn ทำให้ provider cache แบบ longest-common-prefix ไม่มีวัน hit เลย</p></div>
+</section>
+
+<!-- 8 : Cache alignment -->
+<section class="slide">
+  <div class="layer-head"><span class="layer-num">Layer 7</span><h2>Cache Alignment</h2></div>
+  <div class="layer3">
+    <div class="card"><h4>What</h4><p>จัดลำดับข้อความให้เนื้อหาคงที่ (system prompt, tool definitions)
+    มาก่อนเสมอ แล้ววาง cache breakpoint หลัง static prefix นั้น</p></div>
+    <div class="card"><h4>Why</h4><p>Provider cache แบบ prefix ทำให้ turn ถัดๆ ไปจ่ายถูกลงมาก
+    — แต่จะได้ผลก็ต่อเมื่อ prefix เหมือนเดิม<strong>ทุกไบต์</strong>ทุก turn</p></div>
+    <div class="card"><h4>How</h4><p>ต้องเป็น stage <strong>สุดท้าย</strong>ที่แตะเนื้อหา — รันหลัง RAG,
+    compress, lazyload เสมอ ไม่งั้น breakpoint จะไปตกในโซนที่ยังเปลี่ยนได้</p></div>
+  </div>
+<pre><code>Messages: []pipeline.Message{
+    {Role: <span class="s">"system"</span>, Content: prompt, Static: <span class="k">true</span>},
+    ...
+}
+config.WithCacheAlignment()
+<span class="c">// breakpoints placed = 1, after message 0, reason "static_prefix"</span></code></pre>
+  <div class="note bad"><p>เปลี่ยนแม้แต่ 1 ช่องว่างใน system prompt = cache miss ทุก turn
+  ตั้งแต่นั้น — ยืนยันแล้วกับ Anthropic Messages API จริง: turn 1 เขียน cache, turn 2 อ่านสำเร็จ</p></div>
+</section>
+
+<!-- 9 : Routing -->
+<section class="slide">
+  <div class="layer-head"><span class="layer-num">Layer 8</span><h2>Routing</h2></div>
+  <div class="layer3">
+    <div class="card"><h4>What</h4><p>ให้คะแนนความซับซ้อนของ request แล้วเลือก <code>ModelClient</code>
+    จาก tier ที่กำหนด — คะแนนเกินทุก tier จะตกไปที่ tier สุดท้าย (แพงสุด) เสมอ</p></div>
+    <div class="card"><h4>Why</h4><p>Turn ง่ายส่วนใหญ่ไม่จำเป็นต้องใช้โมเดลแรงสุด — ส่งไปโมเดลถูกลด
+    ค่าใช้จ่ายได้จริงโดยไม่ต้องเขียน if-else เลือกโมเดลเองในทุก endpoint</p></div>
+    <div class="card"><h4>How</h4><p>รันหลัง context-shaping stage ทั้งหมด (ไม่ใช่ <code>pipeline.Stage</code>)
+    เพราะต้องเห็น prompt ขนาดสุดท้ายจริงๆ ก่อนตัดสินใจ</p></div>
+  </div>
+<pre><code>router.NewHeuristicRouter(
+    router.Tier{Client: cheap,  MaxComplexity: <span class="o">0.35</span>},
+    router.Tier{Client: strong, MaxComplexity: <span class="o">1.0</span>},
+)
+<span class="c">// weight: length 0.5, code 0.3, retrieved-chunk count 0.2</span></code></pre>
+  <div class="note"><p><code>Tier.Client</code> รับ <code>pipeline.ModelClient</code> ตัวไหนก็ได้ —
+  นี่คือจุดที่ตอบคำถามเรื่อง cross-provider ในสไลด์ถัดไป</p></div>
+</section>
+
+<!-- 10 : Multi-agent -->
+<section class="slide">
+  <span class="eyebrow">Compatibility Q&amp;A</span>
+  <h2>ใช้กับระบบ multi-agent ได้ไหม?</h2>
+  <p><span class="pill ok">ได้ — แบบ library ไม่ใช่ orchestrator</span></p>
+  <p>tokipe ไม่ใช่ agent framework และไม่ตัดสินใจว่าใคร spawn agent ไหน — มันคือ
+  "ชั้นก่อนเรียกโมเดล" ที่แต่ละ agent เรียกใช้ตอน turn ของตัวเองมาถึง ระบบ
+  multi-agent (เช่น orchestrator ที่คุณเขียนเอง หรือ framework อย่าง LangGraph/CrewAI/AutoGen
+  ที่เรียก Go service ของคุณ) วางไว้ "รอบนอก" pipeline นี้ได้ตามปกติ</p>
+  <div class="two tight">
+    <div class="card"><h4>สิ่งที่แชร์กันได้ข้าม agent</h4><p>Tool cache (Redis backend),
+    vector store (pgvector), metrics recorder — ให้ทุก agent instance ชี้ไป backend
+    เดียวกัน ก็ได้ hit rate ที่สูงขึ้นข้าม agent</p></div>
+    <div class="card"><h4>สิ่งที่ต้องแยกต่อ agent</h4><p><code>kit</code> แต่ละตัว
+    (หรือ pipeline instance) ควรมี system prompt/static content ของตัวเอง เพราะ
+    cache breakpoint ผูกกับ prefix ที่คงที่ของ agent นั้นๆ</p></div>
+  </div>
+  <div class="note"><p><strong>ไม่มี global mutable state</strong> เป็นกฎของโปรเจกต์ตั้งแต่ต้น
+  (ดู PLAN.md) — เพราะแบบนี้เอง หลาย agent จึงรันพร้อมกันแบบ concurrent-safe ได้
+  โดยไม่ต้องกลัวชนกัน ตราบใดที่ backend ที่แชร์กัน (cache/store) เอง thread-safe อยู่แล้ว</p></div>
+</section>
+
+<!-- 11 : Cross-provider -->
+<section class="slide">
+  <span class="eyebrow">Compatibility Q&amp;A</span>
+  <h2>ทำงานข้าม provider ในระบบเดียวได้ไหม?</h2>
+  <p><span class="pill ok">ได้ — เป็นฟีเจอร์หลัก ไม่ใช่ workaround</span></p>
+  <p><code>router.Tier.Client</code> รับ <code>pipeline.ModelClient</code> ซึ่งเป็น
+  interface แค่ 2 เมธอด — แต่ละ tier จึงเป็น <strong>provider คนละเจ้าก็ได้</strong>
+  ไม่จำเป็นต้องเป็นโมเดลจากค่ายเดียวกัน</p>
+<pre><code>cheap  := openai.New(openai.Config{BaseURL: <span class="s">"http://localhost:11434/v1"</span>}) <span class="c">// Ollama</span>
+strong := anthropic.New(anthropic.Config{Model: anthropic.DefaultModel})   <span class="c">// Anthropic</span>
+
+kit := tokipe.New(strong, config.WithRouter(router.NewHeuristicRouter(
+    router.Tier{Client: cheap,  MaxComplexity: <span class="o">0.35</span>}, <span class="c">// local model รับ turn ง่าย</span>
+    router.Tier{Client: strong, MaxComplexity: <span class="o">1.0</span>},  <span class="c">// cloud model รับ turn ยาก</span>
+)))</code></pre>
+  <div class="two tight">
+    <div class="card"><h4>ข้อจำกัดที่ต้องรู้</h4><p>Cache breakpoint (<code>cache_control</code>)
+    เป็นของ Anthropic โดยเฉพาะ — ถ้า tier นั้นเป็น OpenAI-compatible/CLI, breakpoint
+    จะถูกละไว้อย่างปลอดภัย (advisory) แต่ stage อื่นทั้งหมดยังทำงานเหมือนเดิม</p></div>
+    <div class="card"><h4>พิสูจน์แล้วในโค้ด</h4><p><code>examples/local-routing</code>
+    รัน local model กับ cloud model คนละตัวจริงในเวิร์กโหลดเดียวกัน โดยไม่มี
+    if-statement เลือก provider ในโค้ดธุรกิจเลยสักบรรทัด</p></div>
+  </div>
+</section>
+
+<!-- 12 : Hermes / OpenClaw / arbitrary backend -->
+<section class="slide">
+  <span class="eyebrow">Compatibility Q&amp;A</span>
+  <h2>Hermes, OpenClaw หรือ backend อื่นที่ไม่ได้ตั้งชื่อไว้ล่ะ?</h2>
+  <p class="dim">ในโค้ดของ tokipe ไม่มีการอ้างถึง "Hermes" หรือ "OpenClaw" โดยตรง —
+  คำตอบเลยขึ้นกับว่าเครื่องมือนั้น <strong>expose ตัวเองแบบไหน</strong> ไม่ใช่ชื่อของมัน</p>
+  <div class="tw">
+    <table>
+      <thead><tr><th>ถ้า backend เป็นแบบนี้</th><th>ใช้ path ไหน</th><th>ตัวอย่าง</th></tr></thead>
+      <tbody>
+        <tr><td>OpenAI-compatible HTTP endpoint</td><td><code>providers/openai</code> —
+        กำหนด <code>BaseURL</code> เท่านั้น</td><td>Hermes ผ่าน Ollama/vLLM/Together/OpenRouter,
+        LM Studio</td></tr>
+        <tr><td>CLI ที่ authenticate ผ่าน subscription อยู่แล้ว</td><td><code>providers/cli</code>
+        — รัน executable ตรงๆ ไม่ผ่าน shell</td><td>มี preset ให้แล้วสำหรับ claude/codex/opencode;
+        CLI อื่นเพิ่ม <code>Config</code> เองได้</td></tr>
+        <tr><td>อะไรก็ได้ที่เหลือ (custom SDK, gRPC, ฯลฯ)</td><td>implement
+        <code>pipeline.ModelClient</code> เอง</td><td>2 เมธอด: <code>Send</code> กับ <code>Name</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+<pre><code><span class="k">type</span> ModelClient <span class="k">interface</span> {
+    Send(context.Context, *pipeline.Request) (*pipeline.Response, <span class="k">error</span>)
+    Name() <span class="k">string</span>
+}</code></pre>
+  <div class="note"><p><strong>Hermes โดยเฉพาะ:</strong> เป็นโมเดล open-weight ที่มักเสิร์ฟผ่าน
+  server แบบ OpenAI-compatible อยู่แล้ว (Ollama/vLLM/OpenRouter) — เข้าทาง
+  <code>providers/openai</code> ได้ทันทีโดยไม่ต้องเขียนโค้ดเพิ่ม<br><br>
+  <strong>OpenClaw:</strong> ไม่ใช่ชื่อที่ปรากฏในโค้ดเบสหรือที่ผู้เขียนยืนยันได้ว่าคืออะไรแน่ —
+  ถ้าหมายถึงเครื่องมือเฉพาะ ช่วยบอกเพิ่มว่ามัน expose แบบ HTTP API หรือ CLI
+  จะระบุ path ที่แม่นยำให้ได้ทันที</p></div>
+</section>
+
+<!-- 13 : Closing -->
+<section class="slide">
+  <span class="eyebrow">Next</span>
+  <h2>สรุปเส้นทางความเข้ากันได้</h2>
+  <div class="three">
+    <div class="card"><h4>Multi-agent</h4><p>ใช้ได้ — วางเป็นชั้นก่อนเรียกโมเดลของแต่ละ agent
+    แชร์ backend (cache/store/metrics) ข้าม agent ได้เต็มที่</p></div>
+    <div class="card"><h4>Cross-provider</h4><p>ใช้ได้ในระบบเดียวกันเลย — router ผูก
+    ModelClient คนละ provider ต่อ tier ได้โดยตรง</p></div>
+    <div class="card"><h4>Backend ใดๆ</h4><p>OpenAI-compatible = ใช้ adapter สำเร็จรูป,
+    CLI = ใช้ preset หรือ config เอง, อื่นๆ = implement interface 2 เมธอด</p></div>
+  </div>
+<pre><code>git clone https://github.com/JMjirapat/tokipe
+<span class="k">cd</span> tokipe &amp;&amp; go run ./examples/local-routing</code></pre>
+  <p class="dim">MANUAL.md มีรายละเอียด provider adapter ทุกตัวและวิธี implement
+  <code>ModelClient</code> เองแบบครบถ้วน</p>
+</section>
+
+</div>
+
+<div class="hud">
+  <button id="prev" aria-label="previous slide">‹</button>
+  <span class="count"><span id="cur">1</span> / <span id="tot">13</span></span>
+  <button id="next" aria-label="next slide">›</button>
+</div>
+<div class="hint"><kbd>←</kbd> <kbd>→</kbd> เลื่อนสไลด์ · <kbd>Home</kbd> กลับไปเริ่ม</div>
+
+<script>
+(function(){
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var i = 0;
+  var cur = document.getElementById('cur');
+  var tot = document.getElementById('tot');
+  var bar = document.getElementById('bar');
+  tot.textContent = slides.length;
+
+  function show(n){
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach(function(s, k){ s.classList.toggle('on', k === i); });
+    cur.textContent = i + 1;
+    bar.style.width = ((i + 1) / slides.length * 100) + '%';
+    if (location.hash !== '#' + (i + 1)) history.replaceState(null, '', '#' + (i + 1));
+    slides[i].scrollTop = 0;
+  }
+
+  document.getElementById('next').addEventListener('click', function(){ show(i + 1); });
+  document.getElementById('prev').addEventListener('click', function(){ show(i - 1); });
+
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { show(i + 1); e.preventDefault(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { show(i - 1); e.preventDefault(); }
+    else if (e.key === 'Home') { show(0); e.preventDefault(); }
+    else if (e.key === 'End') { show(slides.length - 1); e.preventDefault(); }
+  });
+
+  var start = parseInt((location.hash || '#1').slice(1), 10);
+  show(isNaN(start) ? 0 : start - 1);
+})();
+</script>
+</body>
+</html>
