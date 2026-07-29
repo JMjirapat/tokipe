@@ -9,6 +9,7 @@ import (
 	"github.com/JMjirapat/tokipe/pipeline"
 	"github.com/JMjirapat/tokipe/runtime"
 	"github.com/JMjirapat/tokipe/stores"
+	"github.com/JMjirapat/tokipe/toolcache"
 )
 
 func mustParse(t *testing.T, doc string) *runtime.Spec {
@@ -170,9 +171,19 @@ func TestBuildRejectsBadDocuments(t *testing.T) {
 			wantErr: "last router tier",
 		},
 		{
-			name:    "tool cache cannot come from a document alone",
+			name:    "tool cache without an executor",
 			doc:     `{"provider": {"type": "mock"}, "stages": {"tool_cache": {"backend": "memory"}}}`,
-			wantErr: "needs a tool executor",
+			wantErr: "executor is required",
+		},
+		{
+			name:    "tool cache with an unregistered executor",
+			doc:     `{"provider": {"type": "mock"}, "stages": {"tool_cache": {"executor": "nope"}}}`,
+			wantErr: "unknown tool executor",
+		},
+		{
+			name:    "tool cache with an unknown backend",
+			doc:     `{"provider": {"type": "mock"}, "stages": {"tool_cache": {"executor": "x", "backend": "memcached"}}}`,
+			wantErr: "unknown tool executor", // executor is resolved first
 		},
 		{
 			name:    "rag without registered components",
@@ -357,5 +368,68 @@ func TestDocumentBuiltPipelineShapesTheRequest(t *testing.T) {
 	}
 	if req.Messages[0].Content != "instructions" {
 		t.Errorf("static content was not hoisted to the front: %v", req.Messages)
+	}
+}
+
+// The tool cache is the stage that needs both halves: a backend an operator
+// chooses and an executor only Go can supply. Registering the executor must be
+// enough to make the document's declaration work end to end.
+func TestToolCacheFromDocumentWithRegisteredExecutor(t *testing.T) {
+	var execCount int
+	reg := runtime.NewRegistry()
+	reg.RegisterExecutor("tools", func(_ context.Context, call pipeline.ToolCall) (any, error) {
+		execCount++
+		return "result for " + call.Name, nil
+	})
+
+	spec := mustParse(t, `{
+	  "provider": {"type": "mock", "options": {"content": "ok"}},
+	  "stages": {"tool_cache": {"backend": "memory", "executor": "tools", "ttl": "30m"}}
+	}`)
+
+	kit, err := runtime.Build(spec, reg)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	call := pipeline.ToolCall{Name: "lookup", Args: map[string]any{"id": 1}}
+	for i := range 3 {
+		req := &pipeline.Request{Query: "q", ToolCalls: []pipeline.ToolCall{call}}
+		if _, err := kit.Run(context.Background(), req); err != nil {
+			t.Fatalf("run %d: %v", i, err)
+		}
+	}
+
+	// Three turns, identical arguments: the tool runs once and the other two
+	// are served from the cache the document asked for.
+	if execCount != 1 {
+		t.Errorf("executor ran %d times across 3 identical calls, want 1", execCount)
+	}
+}
+
+// A registered cache backend must actually be reachable from a document —
+// this is the seam a nested module (Redis) arrives through.
+func TestRegisteredCacheBackendIsUsed(t *testing.T) {
+	used := false
+	reg := runtime.NewRegistry()
+	reg.RegisterExecutor("tools", func(context.Context, pipeline.ToolCall) (any, error) { return "v", nil })
+	reg.RegisterCache("custom", func(opts map[string]string) (toolcache.Cache, error) {
+		used = true
+		if opts["addr"] != "localhost:6379" {
+			t.Errorf("backend options = %v, want the document's addr", opts)
+		}
+		return toolcache.NewMemoryCache(), nil
+	})
+
+	spec := mustParse(t, `{
+	  "provider": {"type": "mock", "options": {"content": "ok"}},
+	  "stages": {"tool_cache": {"backend": "custom", "executor": "tools", "options": {"addr": "localhost:6379"}}}
+	}`)
+
+	if _, err := runtime.Build(spec, reg); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !used {
+		t.Error("the registered backend factory was never called")
 	}
 }

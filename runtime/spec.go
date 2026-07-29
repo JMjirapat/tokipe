@@ -145,10 +145,19 @@ type ExactRuleSpec struct {
 }
 
 // ToolCacheSpec configures tool-result reuse.
+//
+// It is the one stage that needs something from Go no matter how it is
+// declared: the cache resolves a miss by *executing the tool*, and a tool is
+// code. Backend and TTL are the operator's to set; Executor names what the
+// program registered.
 type ToolCacheSpec struct {
 	// Backend selects a registered cache factory. "memory" out of the box;
-	// "redis" once the nested module registers itself.
+	// "redis" once the program registers the nested module's constructor.
 	Backend string `json:"backend,omitempty"`
+
+	// Executor names a tool executor registered with Registry.RegisterExecutor.
+	// Required: a cache with no executor could only ever miss.
+	Executor string `json:"executor"`
 
 	// TTL bounds how long a cached result stays valid. Zero means no expiry.
 	TTL Duration `json:"ttl,omitempty"`

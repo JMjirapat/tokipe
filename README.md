@@ -295,9 +295,18 @@ kit, err := runtime.Build(spec, reg, config.WithMetrics(rec))
 
 Anything that is a Go function stays a Go function: preprocess predicates beyond
 exact match, custom stages, and the tool executor. A document names them;
-`Registry` supplies them. The tool cache in particular cannot be enabled from a
-document alone, because the cache resolves misses by *executing* tools — so
-`Build` says so rather than half-enabling a cache that could only ever miss.
+`Registry` supplies them:
+
+```go
+reg.RegisterExecutor("my_tools", runTool)
+```
+```json
+{"tool_cache": {"backend": "redis", "executor": "my_tools", "ttl": "30m"}}
+```
+
+The executor is required, not optional — a tool cache resolves a miss by running
+the tool, so enabling the stage without one would build a cache that could only
+ever miss while looking configured.
 
 ```bash
 go run ./examples/declarative
@@ -536,12 +545,12 @@ CGO_ENABLED=0 go build ./...
 
 A healthy checkout reports:
 
-<!-- inventory:test-funcs=418 -->
+<!-- inventory:test-funcs=420 -->
 <!-- inventory:packages=31 -->
 
 | Quantity | Value | Command |
 |---|---|---|
-| Test/Example functions | **418** | `grep -rhoE '^func (Test\|Example)[A-Za-z0-9_]*' --include='*_test.go' . \| wc -l` |
+| Test/Example functions | **420** | `grep -rhoE '^func (Test\|Example)[A-Za-z0-9_]*' --include='*_test.go' . \| wc -l` |
 | Packages in the root module | **31** | `go list ./... \| wc -l` |
 | Failures | **0** | `go test -race -count=1 ./...` |
 

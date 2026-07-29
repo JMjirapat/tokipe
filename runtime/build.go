@@ -16,6 +16,7 @@ import (
 	"github.com/JMjirapat/tokipe/preprocess"
 	"github.com/JMjirapat/tokipe/router"
 	"github.com/JMjirapat/tokipe/stores"
+	"github.com/JMjirapat/tokipe/toolcache"
 )
 
 // Parse reads a Spec from JSON.
@@ -81,7 +82,11 @@ func (s *Spec) Options(reg *Registry) ([]config.Option, error) {
 	}
 
 	if tc := s.Stages.ToolCache; tc != nil {
-		return nil, errToolCacheNeedsExecutor
+		cache, exec, err := buildToolCache(tc, reg)
+		if err != nil {
+			return nil, err
+		}
+		add(config.WithToolCache(cache, exec, tc.TTL.D()))
 	}
 
 	if r := s.Stages.RAG; r != nil {
@@ -151,15 +156,41 @@ func (s *Spec) Options(reg *Registry) ([]config.Option, error) {
 // the README's production example uses.
 const defaultTopK = 5
 
-// errToolCacheNeedsExecutor explains a limit that is structural rather than
-// incidental. The tool cache resolves ToolCalls by *executing the misses*, and
-// the executor is a Go function that runs the caller's tools. A document can
-// name a cache backend; it cannot contain the code that runs a tool. Rather than
-// half-enable the stage — a cache that can only ever miss — Build says so.
-var errToolCacheNeedsExecutor = fmt.Errorf(
-	"runtime: stages.tool_cache cannot be enabled from a document alone: the cache " +
-		"needs a tool executor, which is Go code. Build the cache with " +
-		"Registry.RegisterCache and pass config.WithToolCache to BuildWith")
+// buildToolCache resolves the backend and the executor.
+//
+// The executor is required and cannot come from the document, because the tool
+// cache resolves a miss by running the tool. Enabling the stage without one
+// would build a cache that can only ever miss — worse than not enabling it,
+// since it would look configured.
+func buildToolCache(tc *ToolCacheSpec, reg *Registry) (toolcache.Cache, toolcache.Executor, error) {
+	if tc.Executor == "" {
+		return nil, nil, fmt.Errorf(
+			"runtime: stages.tool_cache.executor is required: the cache resolves a miss by running the "+
+				"tool, which is Go code. Register one with Registry.RegisterExecutor and name it here "+
+				"(registered: %s)", known(reg.executors))
+	}
+	exec, ok := reg.executors[tc.Executor]
+	if !ok {
+		return nil, nil, fmt.Errorf("runtime: unknown tool executor %q (registered: %s)", tc.Executor, known(reg.executors))
+	}
+
+	backend := tc.Backend
+	if backend == "" {
+		backend = "memory"
+	}
+	f, ok := reg.caches[backend]
+	if !ok {
+		return nil, nil, fmt.Errorf("runtime: unknown tool cache backend %q (registered: %s)", backend, known(reg.caches))
+	}
+	cache, err := f(tc.Options)
+	if err != nil {
+		return nil, nil, fmt.Errorf("runtime: tool cache backend %q: %w", backend, err)
+	}
+	if cache == nil {
+		return nil, nil, fmt.Errorf("runtime: tool cache backend %q returned no cache and no error", backend)
+	}
+	return cache, exec, nil
+}
 
 func buildRules(p *PreprocessSpec, reg *Registry) ([]preprocess.Rule, error) {
 	rules := make([]preprocess.Rule, 0, len(p.Use)+len(p.Rules))

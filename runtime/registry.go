@@ -36,6 +36,7 @@ type Registry struct {
 	counters  map[string]budget.TokenCounter
 	rules     map[string]preprocess.Rule
 	stages    map[string]pipeline.Stage
+	executors map[string]toolcache.Executor
 }
 
 // ProviderFactory builds a model client from its declared spec. A factory is
@@ -74,6 +75,7 @@ func NewRegistry() *Registry {
 		counters:  map[string]budget.TokenCounter{},
 		rules:     map[string]preprocess.Rule{},
 		stages:    map[string]pipeline.Stage{},
+		executors: map[string]toolcache.Executor{},
 	}
 
 	r.RegisterProvider("mock", newMockProvider)
@@ -115,6 +117,11 @@ func (r *Registry) RegisterRule(name string, rule preprocess.Rule) { r.rules[nam
 // RegisterStage makes a caller-supplied stage available by name, on the same
 // terms as RegisterRule.
 func (r *Registry) RegisterStage(name string, s pipeline.Stage) { r.stages[name] = s }
+
+// RegisterExecutor makes a tool executor available to a document by name. It is
+// what lets stages.tool_cache be declared at all: the backend and TTL are the
+// operator's to choose, but running a tool is code, and code arrives here.
+func (r *Registry) RegisterExecutor(name string, e toolcache.Executor) { r.executors[name] = e }
 
 // known lists what is registered under kind, for an error message that tells
 // the operator what they could have typed instead.
